@@ -1,0 +1,41 @@
+---
+# This role joins a machine to the K3s cluster already running on the
+# server in its own region, as a worker node - it runs Kubernetes
+# workloads, but never runs the control plane itself.
+
+- name: Check whether the k3s-agent service is already running
+  service_facts:
+  # Checking for the k3s binary alone isn't enough to know this step is
+  # done - it's possible for the binary to be installed but the agent to
+  # have never actually joined the cluster (exactly what happened here: an
+  # earlier attempt got interrupted after downloading K3s but before it
+  # finished registering with the server). Checking the actual systemd
+  # service state - "is it running", not just "does the file exist" - is
+  # what makes this step correctly retry a half-finished join instead of
+  # wrongly skipping it.
+
+- name: Join this machine to its region's K3s server as an agent
+  shell: curl -sfL https://get.k3s.io | sh -
+  environment:
+    # Deliberately the server's PRIVATE address, not its public IP
+    # (ansible_host, used for SSH, is the public one). Discovered the hard
+    # way: an agent connecting to the server's public IP gets treated by
+    # Azure as ordinary internet traffic, even though both machines are in
+    # the same virtual network - so it never actually matched the
+    # firewall rule meant to allow it. The private address (gathered
+    # automatically by Ansible's fact-gathering step, the same one that
+    # already runs at the start of every play) travels over the VNet
+    # directly, which the firewall rule correctly recognizes - and it's
+    # the right architecture anyway: internal cluster traffic shouldn't
+    # round-trip through public IPs at all.
+    K3S_URL: "https://{{ hostvars[k3s_server_host]['ansible_default_ipv4']['address'] }}:6443"
+    K3S_TOKEN: "{{ hostvars[k3s_server_host]['node_token'] }}"
+  when: >
+    'k3s-agent.service' not in ansible_facts.services or
+    ansible_facts.services['k3s-agent.service'].state != 'running'
+  # The exact same install script as the server role runs - K3S_URL and
+  # K3S_TOKEN are what switch it from "set up a brand-new server" to "join
+  # an existing one instead." k3s_server_host is defined per-agent in
+  # hosts.yml, pointing at exactly the server this specific agent should
+  # join - never the other region's, which is what keeps the two clusters
+  # genuinely independent instead of accidentally merging into one.

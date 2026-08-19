@@ -1,0 +1,35 @@
+# Traefik is K3s's built-in ingress controller - nothing extra to install
+# for this part. An Ingress is what actually exposes a Service to the
+# outside world and terminates TLS on the way in; without it, the Service
+# from service.yaml only ever answers requests from inside the cluster.
+#
+# No "host:" is set on the rule below, deliberately - Requirement 4 (and
+# the project's own "don't spend any money on domains" rule) is fine with
+# reaching this over a raw IP address rather than a real domain name. With
+# no host to match against, Traefik treats this as the default backend for
+# any request it receives, which is exactly what's needed here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-world
+  namespace: hello-world
+spec:
+  ingressClassName: traefik
+  tls:
+    # secretName isn't created here - cert-manager watches for a
+    # Certificate resource asking for a secret with this exact name (each
+    # region's overlay provides that Certificate, since it needs to list
+    # that region's own public IP), and writes the actual TLS key and
+    # certificate into it once ready. Traefik then reads the secret by this
+    # name to know what to present when a browser connects over HTTPS.
+    - secretName: hello-world-tls
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello-world
+                port:
+                  number: 80

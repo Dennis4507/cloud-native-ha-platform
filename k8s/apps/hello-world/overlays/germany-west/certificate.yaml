@@ -1,0 +1,15 @@
+# Same reasoning as West Europe's certificate.yaml - only the IP address
+# actually differs, because that's the only thing that's genuinely
+# different between the two regions' Load Balancers.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hello-world-tls
+  namespace: hello-world
+spec:
+  secretName: hello-world-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  ipAddresses:
+    - 20.218.111.44

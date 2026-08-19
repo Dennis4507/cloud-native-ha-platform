@@ -1,0 +1,19 @@
+# Germany West Central's own version of the same file West Europe has -
+# same structure, different text. This is the whole visual proof of the
+# Requirement 5 failover demo: when traffic switches regions, this is what
+# changes in the browser.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-world-html
+  namespace: hello-world
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+      <head><title>Hello World - Azure Germany West Central</title></head>
+      <body style="font-family: sans-serif; text-align: center; margin-top: 10%;">
+        <h1>Hello World</h1>
+        <p>Serving from: Azure Germany West Central</p>
+      </body>
+    </html>

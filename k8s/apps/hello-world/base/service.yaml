@@ -1,0 +1,18 @@
+# A ClusterIP Service - reachable from inside the cluster only, not
+# directly from the internet. That's deliberate: the Ingress added in the
+# next step is what actually exposes this to a browser, terminating TLS on
+# the way in. This Service's real job is the one Requirement 3 asks for -
+# K3s's default round-robin routing across whichever hello-world pods are
+# currently Ready, which is what a repeated `curl` against this Service's
+# address will prove.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-world
+  namespace: hello-world
+spec:
+  selector:
+    app: hello-world
+  ports:
+    - port: 80
+      targetPort: 80

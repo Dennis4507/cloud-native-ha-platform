@@ -1,0 +1,32 @@
+# Requirement 3's autoscaling half. This watches the Deployment's actual
+# CPU usage and adds or removes replicas to keep it near the target - the
+# part of "traffic distributed and scaled automatically" that the plain
+# Service and required anti-affinity alone don't cover; those two only
+# guarantee the pods that DO exist land on separate nodes, not that more
+# get created under load.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hello-world
+  namespace: hello-world
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hello-world
+  # Never below the floor that already proves multi-node distribution, and
+  # capped at 10 so a runaway load test can't quietly eat the whole cluster's
+  # capacity during the live demo.
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # 60% of each pod's own CPU *request* (100m, set in deployment.yaml) -
+          # not 60% of the node's total CPU. This is the number the k6 load
+          # test in a later phase is actually driving past, to trigger real
+          # scale-up live.
+          averageUtilization: 60

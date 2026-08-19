@@ -1,0 +1,27 @@
+# cert-manager's "Certificate" custom resource - a request, not the
+# certificate itself. cert-manager watches for this, asks the ClusterIssuer
+# from the base (the self-signed one) to actually produce a certificate and
+# private key matching what's asked for here, then writes the result into a
+# Secret named "hello-world-tls" - the exact name the Ingress in the base
+# is already configured to read from.
+#
+# ipAddresses, not dnsNames: there's no domain name involved anywhere in
+# this project (see the project's own "don't spend money on domains" rule),
+# so the certificate has to vouch for the raw IP address a browser will
+# actually connect to instead - this region's Load Balancer frontend
+# address. This is the exact same lesson the K3s TLS incident taught the
+# hard way earlier in this project (a certificate is only ever valid for
+# the addresses it explicitly lists) - applied here on purpose from the
+# start, instead of discovered after a browser rejects the connection.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hello-world-tls
+  namespace: hello-world
+spec:
+  secretName: hello-world-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  ipAddresses:
+    - 20.229.108.8

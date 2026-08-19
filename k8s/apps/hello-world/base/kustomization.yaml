@@ -1,0 +1,14 @@
+# Kustomize's job here is simple: bundle these three files into one unit
+# that both regions' overlays can build on top of, changing only what
+# actually differs between them (each region's own ConfigMap). ArgoCD
+# understands Kustomize natively - no plugin or extra tooling needed for it
+# to read this.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - cluster-issuer.yaml
+  - ingress.yaml

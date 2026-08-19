@@ -1,0 +1,33 @@
+# Germany West Central's Application - identical shape to West Europe's,
+# pointed at that region's own overlay. The one real difference is
+# "destination.server": this can't use the "kubernetes.default.svc"
+# shortcut, because Germany West Central is a genuinely different cluster
+# from the one ArgoCD itself runs on.
+#
+# That server address has to exactly match whatever address gets
+# registered when this cluster is added to ArgoCD via the
+# `argocd cluster add azure-germany-west` command (see the setup notes in
+# this project's PLAN.md) - which reads it straight from this laptop's own
+# kubeconfig, the same file scripts/kubeconfig-merge.sh already produces.
+# As of now, that address is Germany West Central's server's public IP,
+# https://20.52.138.69:6443 - if that server's address ever changes, this
+# has to change with it, the same way ansible/inventory/hosts.yml already
+# does.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-world-germany-west
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Dennis4507/cloud-native-ha-platform.git
+    targetRevision: main
+    path: k8s/apps/hello-world/overlays/germany-west
+  destination:
+    server: https://20.52.138.69:6443
+    namespace: hello-world
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

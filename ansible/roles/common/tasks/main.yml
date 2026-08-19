@@ -1,0 +1,51 @@
+---
+# Every Kubernetes node needs a few things true about its underlying Linux
+# system before Kubernetes will run reliably on it. This role sets those up
+# the same way on every machine - the two Azure regions now, and later the
+# GCP showcase VM too, since none of this is specific to any one cloud.
+
+# Kubernetes assumes it can trust the operating system's own memory
+# pressure signals to decide when a pod needs to be evicted for safety.
+# Swap defeats that assumption - a machine can look like it still has room
+# to spare, because it's quietly swapping to disk, when it's actually
+# critically overloaded. This is why Kubernetes' own documentation
+# recommends disabling swap outright rather than working around it.
+- name: Disable swap immediately
+  command: swapoff -a
+  changed_when: true
+
+- name: Prevent swap from coming back after a reboot
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+# Kubernetes' networking depends on iptables rules to route traffic between
+# pods correctly. The Linux bridge only hands that traffic to iptables at
+# all if this kernel module is loaded - without it, NetworkPolicy rules and
+# Service routing would silently stop applying to bridged traffic, with no
+# obvious error pointing at the real cause.
+- name: Load the br_netfilter kernel module
+  modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Keep br_netfilter loaded after a reboot
+  copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: "br_netfilter\n"
+
+# These settings are what actually make br_netfilter's effect apply to
+# bridged network traffic, and ip_forward is what lets this machine route
+# packets between pods running on different nodes - without it, a pod on
+# one node could never reach a pod on another.
+- name: Apply the kernel network settings Kubernetes needs
+  sysctl:
+    name: "{{ item }}"
+    value: "1"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.ipv4.ip_forward

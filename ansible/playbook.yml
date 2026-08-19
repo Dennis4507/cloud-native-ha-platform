@@ -1,0 +1,23 @@
+---
+# Runs each role, in order, against the right group of machines. Order
+# matters: the "common" prep has to happen everywhere first, and (once
+# those roles exist) k3s-server has to finish - and the cluster has to
+# actually exist - before k3s-agent can join anything to it.
+
+- name: Prepare every node the same way, regardless of cloud or role
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Turn one machine per region into a Kubernetes control plane
+  hosts: k3s_server
+  become: true
+  roles:
+    - k3s-server
+
+- name: Join the second machine per region as a worker
+  hosts: k3s_agent
+  become: true
+  roles:
+    - k3s-agent

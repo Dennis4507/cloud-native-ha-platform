@@ -1,0 +1,67 @@
+# The actual "Hello World" workload - Requirement 2. No custom container
+# image is built for this: it's plain NGINX, serving a single HTML file
+# that gets mounted in from a ConfigMap instead of being baked into an
+# image. That ConfigMap isn't defined here in the base - each region's
+# overlay (west-eu, germany-west) supplies its own, under the same name, so
+# the only thing that differs per region is the page's content, not the
+# Deployment itself.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world
+  namespace: hello-world
+spec:
+  # Two replicas is the minimum that actually proves Requirement 3's claim -
+  # "traffic distributed across multiple instances." The HPA (added in the
+  # next step) can scale this up further under load, but it never scales
+  # below this floor.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      # This is the setting that makes Requirement 3's "multiple nodes" claim
+      # real instead of just likely. "Required" (not "preferred") means the
+      # scheduler will refuse to place two hello-world pods on the same node
+      # even under resource pressure - with "preferred," Kubernetes quietly
+      # drops the rule exactly when the cluster is busiest, which is the
+      # worst possible moment for a high-availability guarantee to disappear.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: hello-world
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          resources:
+            # The HPA added next scales based on CPU usage as a percentage of
+            # this *request*, not of the node's total CPU. Set this too low
+            # and the HPA fires constantly on ordinary noise; set it
+            # realistically for what NGINX actually needs at idle, and the
+            # scaling behavior during the load test actually means something.
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+      volumes:
+        - name: html
+          configMap:
+            # Deliberately just a name reference, not defined in this file -
+            # each region's overlay provides the actual ConfigMap, matching
+            # this exact name, with that region's own identity text inside it.
+            name: hello-world-html

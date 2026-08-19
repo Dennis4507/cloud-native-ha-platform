@@ -1,0 +1,41 @@
+# Terraform - local plugin cache and state files never belong in Git; the
+# real state lives in Azure Blob Storage, and backend-config.hcl holds a
+# storage account name that's unique to this subscription.
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+terraform/**/backend-config.hcl
+crash.log
+crash.*.log
+
+# Secrets and local env files never belong in Git either.
+secrets/
+.env
+.env.*
+!.env.example
+
+# Kubeconfig files - these carry real client certificates and private keys
+# that grant full administrative access to whichever cluster they point at.
+# Ansible fetches one raw copy per server (ansible/kubeconfig-*.yaml); the
+# merge script combines both into merged-kubeconfig.yaml before writing the
+# result to ~/.kube/config. All of them are live credentials, not just
+# config - none of them belong in Git, ever, on any branch.
+ansible/kubeconfig-*.yaml
+merged-kubeconfig.yaml
+*.kubeconfig
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Downloaded tool binaries - things like `curl -LO .../kubectl` occasionally
+# get run from inside this project folder instead of somewhere throwaway,
+# leaving a large executable sitting here that was never meant to be part
+# of the repo (this happened once already, a stray ~56MB kubectl binary in
+# ansible/). None of these belong in Git regardless of where they land.
+kubectl
+argocd-linux-amd64
+argocd

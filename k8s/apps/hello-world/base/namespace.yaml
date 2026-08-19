@@ -1,0 +1,9 @@
+# Everything for this app lives in its own namespace rather than the
+# cluster's "default" one. This isn't about security here - it's about the
+# demo itself being legible: "kubectl get pods -n hello-world" only ever
+# shows what actually belongs to this app, on a cluster that will later also
+# be running cert-manager, ArgoCD, and Uptime Kuma, each with their own pods.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hello-world

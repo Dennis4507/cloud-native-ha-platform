@@ -1,0 +1,74 @@
+---
+# This role turns one machine per region into a Kubernetes control plane -
+# the machine running the API server, the cluster's internal database, and
+# the scheduler. K3s bundles all of that into a single binary and a single
+# systemd service, which is exactly why it was chosen here over a full
+# "kubeadm" install: one command produces a complete, working control
+# plane, well suited to a small virtual machine.
+
+- name: Check whether the k3s service is already running
+  service_facts:
+  # Checking for the k3s binary alone isn't enough to know this step is
+  # done - it's possible for the binary to be installed but the service to
+  # have never actually started successfully. Checking the real systemd
+  # service state - "is it running", not just "does the file exist" - is
+  # what makes this step correctly retry a half-finished install instead
+  # of wrongly skipping it.
+
+- name: Install K3s in server mode
+  shell: curl -sfL https://get.k3s.io | sh -s - --tls-san {{ ansible_host }}
+  when: >
+    'k3s.service' not in ansible_facts.services or
+    ansible_facts.services['k3s.service'].state != 'running'
+  # Server mode is what makes this specific machine the control plane - the
+  # k3s-agent role, run against the other machine in this same region,
+  # points at this one instead of installing a second control plane of its
+  # own.
+  #
+  # --tls-san matters because K3s generates its own self-signed API server
+  # certificate once, the first time it starts, and only lists the
+  # addresses it already knows about at that moment - the machine's private
+  # IP, the cluster's internal service IP, and localhost. It has no way to
+  # know a public IP even exists unless told, because that IP is something
+  # Azure assigned from outside, not something the operating system itself
+  # is aware of. Without this flag, the certificate is only ever valid for
+  # in-cluster and SSH-tunnel access - which is exactly the "certificate is
+  # valid for 10.0.1.5 ... not 52.236.138.44" error this fixes. ansible_host
+  # is already this machine's public IP, straight from the inventory file,
+  # so no new variable is needed to supply it.
+
+- name: Wait for K3s to finish starting and write out its node-token
+  wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 120
+  # The node-token is what proves an agent is allowed to join THIS specific
+  # cluster, not just any K3s cluster anywhere - it's used in Kubernetes'
+  # own TLS bootstrap handshake. K3s writes this file itself, a few seconds
+  # after the service starts - this step just waits for that to actually
+  # happen rather than assuming it's instant.
+
+- name: Read the node-token so the k3s-agent role can use it
+  slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: node_token_raw
+
+- name: Make the node-token available to other hosts in this play
+  set_fact:
+    node_token: "{{ node_token_raw.content | b64decode | trim }}"
+  # Ansible facts set with set_fact on one host become readable by OTHER
+  # hosts in the same play run, through "hostvars" - this is what lets the
+  # k3s-agent role, running later in the same playbook execution, read this
+  # server's token directly, without needing to separately SSH into the
+  # server to fetch it itself.
+
+- name: Fetch this cluster's kubeconfig to the local machine
+  fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "kubeconfig-{{ inventory_hostname }}.yaml"
+    flat: true
+  # K3s writes its own kubeconfig on the server, but that file points at
+  # "127.0.0.1" - only correct from the server's own point of view. This
+  # step just copies the raw file down; scripts/kubeconfig-merge.sh (a
+  # later step) is what rewrites the address to this machine's real public
+  # IP and merges both regions' configs into one file kubectl can actually
+  # use from this laptop.

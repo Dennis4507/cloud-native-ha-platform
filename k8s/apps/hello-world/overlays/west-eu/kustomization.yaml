@@ -1,0 +1,10 @@
+# Everything region-agnostic comes from the shared base; this overlay adds
+# only the two things that actually differ for West Europe - its own
+# identity text and its own certificate. ArgoCD's West Europe Application
+# (added in a later step) points directly at this folder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - configmap.yaml
+  - certificate.yaml

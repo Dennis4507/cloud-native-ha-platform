@@ -1,0 +1,22 @@
+# This is the one file that actually makes the two regions visibly
+# different in the demo. The base Deployment mounts a ConfigMap named
+# "hello-world-html" as its web root, without caring what's inside it - this
+# file is what supplies that content for West Europe specifically. When the
+# Requirement 5 failover demo switches from this region to Germany West
+# Central, this is the text that disappears from the browser, replaced by
+# the other region's own version of this same file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-world-html
+  namespace: hello-world
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+      <head><title>Hello World - Azure West Europe</title></head>
+      <body style="font-family: sans-serif; text-align: center; margin-top: 10%;">
+        <h1>Hello World</h1>
+        <p>Serving from: Azure West Europe (Amsterdam, Netherlands)</p>
+      </body>
+    </html>

@@ -1,0 +1,34 @@
+# ArgoCD's own custom resource type, "Application" - this is the actual
+# GitOps wiring: it tells ArgoCD "watch this exact folder, in this exact
+# repo, and keep this exact cluster's state matching whatever's there."
+# This one is West Europe's - it lives in the argocd namespace (where
+# ArgoCD itself runs) even though what it deploys lives in the hello-world
+# namespace on the target cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-world-west-eu
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Dennis4507/cloud-native-ha-platform.git
+    targetRevision: main
+    path: k8s/apps/hello-world/overlays/west-eu
+  destination:
+    # "https://kubernetes.default.svc" is a fixed, special address meaning
+    # "the same cluster ArgoCD itself is running on" - no separate cluster
+    # registration is needed for this one, unlike Germany West Central.
+    server: https://kubernetes.default.svc
+    namespace: hello-world
+  syncPolicy:
+    automated:
+      # "prune" means a resource removed from Git also gets removed from
+      # the cluster automatically, not just left behind as an orphan.
+      # "selfHeal" is the actual point of GitOps: if someone (including me,
+      # by hand, during testing) changes something directly on the cluster
+      # instead of through Git, ArgoCD reverts it back to match Git within
+      # its next sync cycle. Git is the single source of truth, not
+      # whatever the cluster happens to currently look like.
+      prune: true
+      selfHeal: true

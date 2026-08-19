@@ -1,0 +1,20 @@
+# cert-manager needs to exist on the cluster already (installed separately,
+# not part of this repo - it's a general-purpose cluster add-on, not
+# specific to this one app) before this does anything. A ClusterIssuer is
+# cert-manager's own custom resource type - "the thing that's allowed to
+# actually sign certificates." "SelfSigned" means exactly what it sounds
+# like: the certificate vouches for itself, with no outside Certificate
+# Authority involved. Requirement 4 explicitly accepts this - "self-signed
+# or CA-signed are both fine" - and it costs nothing and needs no domain,
+# unlike a real CA-issued certificate would.
+#
+# This is cluster-scoped, not namespaced (there's no "namespace:" field,
+# and never can be for this resource type) - one issuer, usable by any
+# namespace on the cluster, which is why it lives in the shared base rather
+# than a per-region overlay.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}

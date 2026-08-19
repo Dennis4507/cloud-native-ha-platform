@@ -1,0 +1,9 @@
+# Mirrors west-eu/kustomization.yaml exactly, pointed at Germany West
+# Central's own two files instead. ArgoCD's Germany West Application (added
+# in a later step) points directly at this folder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - configmap.yaml
+  - certificate.yaml
