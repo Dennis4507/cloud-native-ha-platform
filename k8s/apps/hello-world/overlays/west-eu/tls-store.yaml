@@ -1,0 +1,24 @@
+# Traefik picks which certificate to present during the TLS handshake using
+# SNI (Server Name Indication) - the hostname a browser sends before it even
+# asks for a specific page. That works fine when there's a real domain name
+# to match against, but this project deliberately has none (raw IPs only,
+# per the "don't spend money on domains" rule) - so Traefik has nothing to
+# match on, and quietly falls back to its own generic built-in certificate
+# instead of the real one cert-manager issued. The Certificate itself was
+# never broken; Traefik just never knew to use it.
+#
+# "TLSStore" is Traefik's own custom resource for exactly this situation -
+# it names one certificate as the DEFAULT, used for any connection that
+# doesn't match a specific SNI rule. It has to be named literally "default"
+# - that's the specific name Traefik looks for, not an arbitrary choice.
+# Each region runs its own separate K3s cluster with its own Traefik
+# instance, so one of these per overlay is correct - no conflict between
+# regions, since they never share a Traefik instance to begin with.
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: hello-world
+spec:
+  defaultCertificate:
+    secretName: hello-world-tls

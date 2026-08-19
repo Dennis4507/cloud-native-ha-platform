@@ -39,5 +39,14 @@ provider "azurerm" {
   # only the handful of services this platform actually uses get switched
   # on, explicitly, by the root account, once - a more precise and
   # auditable approach than silently enabling everything by default.
+  #
+  # The azurerm provider does have a newer replacement for this setting,
+  # "resource_provider_registrations", which is why some tooling flags this
+  # one as deprecated - but that replacement isn't actually supported by
+  # 3.117.1, the exact provider version this project has locked (see
+  # .terraform.lock.hcl) - confirmed directly by Terraform itself refusing
+  # to parse it ("argument ... is not expected here"), not just a guess.
+  # Staying on the older, working argument until this project deliberately
+  # upgrades to a provider version that actually supports the new one.
   skip_provider_registration = true
 }

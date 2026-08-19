@@ -130,6 +130,40 @@ resource "azurerm_network_security_group" "this" {
     destination_address_prefix = "*"
   }
 
+  # Discovered live again, this time registering Germany West Central with
+  # ArgoCD: the exact same "VirtualNetwork only means THIS region's own
+  # private range" gap from the K3s join incident above, just showing up
+  # between two different clusters instead of two nodes in one cluster. The
+  # ArgoCD server itself runs as a pod on West Europe, and reaches out to
+  # Germany West Central's *public* API address to manage it - traffic that
+  # crosses between two separate networks, which Azure never treats as
+  # "internal" no matter how related the two projects are. Each region's
+  # NSG (this block runs once per region, via the same for_each) needs to
+  # explicitly trust the other region's own known public IPs on this port.
+  #
+  # Listing exact IPs rather than a broader rule is deliberately the more
+  # restrictive choice - it only works because automatic_instance_repair is
+  # currently disabled (see the note on the VMSS resource below), so these
+  # addresses are stable for now. If that feature gets re-enabled later,
+  # this rule needs revisiting at the same time - the same fragility
+  # already being tracked for the Ansible inventory.
+  security_rule {
+    name                       = "AllowK3sAPIFromOtherRegion"
+    priority                   = 117
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "6443"
+    source_address_prefixes = [
+      "52.236.138.44",  # west-eu-server
+      "20.107.2.72",    # west-eu-agent
+      "20.52.138.69",   # germany-west-server
+      "20.113.169.250", # germany-west-agent
+    ]
+    destination_address_prefix = "*"
+  }
+
   security_rule {
     name                       = "AllowHTTPFromAnywhere"
     priority                   = 120

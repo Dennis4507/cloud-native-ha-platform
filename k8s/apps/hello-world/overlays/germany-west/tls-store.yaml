@@ -1,0 +1,11 @@
+# Same reasoning as west-eu/tls-store.yaml - this region's own Traefik
+# instance, told to default to this region's own real certificate instead
+# of its generic built-in one.
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: hello-world
+spec:
+  defaultCertificate:
+    secretName: hello-world-tls

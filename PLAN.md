@@ -119,8 +119,17 @@ sufficient — no further tightening planned.
       `monitoring-concept.md`. The concept doc still gets written - it's
       what explains the production-scale answer beyond what one small pod
       can show - but Uptime Kuma itself is core work now, not a bonus.
-- [ ] Written concept docs: `docs/monitoring-concept.md` (Req 6),
-      `docs/backup-recovery-concept.md` (Req 7)
+- [ ] Written concept docs: `docs/monitoring-concept.md` (Req 6, also
+      mentions ArgoCD's Healthy/Degraded status as a second monitoring
+      signal alongside Uptime Kuma), `docs/backup-recovery-concept.md`
+      (Req 7, MTTR reasoning + Velero mentioned as the production answer
+      for stateful data, not built live - Hello World has no state to back
+      up, so there's nothing real for it to demonstrate)
+- [ ] Live Req 7 demo, using ArgoCD's selfHeal (already configured) rather
+      than building anything new: scale the Hello World deployment down by
+      hand with `kubectl`, bypassing Git, and show ArgoCD noticing the
+      drift and restoring it automatically - a real, fast, safe proof of
+      "the platform recovers on its own," at zero extra build cost
 - [ ] DNS debugging runbook + one rehearsed captured run (Req 8)
 - [ ] GitHub Actions CI (`tflint` → `checkov` → `helm lint`) - deliberately
       last, since it checks code that needs to already be finished and
