@@ -1,0 +1,8 @@
+# Its own namespace, same reasoning as hello-world's - keeps
+# "kubectl get pods -n monitoring" showing only what actually belongs to
+# this tool, separate from the application it's watching and from ArgoCD
+# itself.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring

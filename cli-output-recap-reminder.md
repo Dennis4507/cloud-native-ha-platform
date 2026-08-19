@@ -116,6 +116,46 @@ Command: `ansible-playbook -i inventory/hosts.yml playbook.yml`, then `bash scri
 Shows: the full rebuild, then both clusters showing two `Ready` nodes each - this time reached directly from the laptop, no SSH involved. This is Requirement 1, satisfied exactly as the brief asks for it.
 Reference: [§3 Ansible](#3-ansibles-play-recap-line) + [§4 kubectl](#4-kubectl-get-nodes).
 
+**21. `34-argocd-pods-running`**
+Command: `kubectl --context azure-west get pods -n argocd`, after installing with `--server-side`.
+Shows: all seven ArgoCD pods `Running`.
+Reference: self-explanatory.
+
+**22. `35-cert-manager-missing-error`**
+Command: `argocd app get hello-world-west-eu`, before cert-manager was installed on either cluster.
+Shows: `SyncError` naming the exact missing piece - "Make sure the 'Certificate' CRD is installed on the destination cluster."
+Reference: self-explanatory.
+
+**23. `36-cert-manager-installed-both-clusters`**
+Command: `kubectl --context azure-west get pods -n cert-manager` and the same for `azure-germany-west`.
+Shows: three cert-manager pods per cluster, `Running` - the dependency that was missing when the first sync attempt failed.
+Reference: self-explanatory.
+
+**24. `37-west-eu-synced-healthy`** / **25. `38-germany-west-synced-healthy`**
+Command: `argocd app sync hello-world-west-eu` / `hello-world-germany-west`, then `argocd app get` for each.
+Shows: every resource ArgoCD manages for that region - `Synced` and `Healthy`.
+Reference: self-explanatory.
+
+**26. `39-hello-world-west-eu-https`** / **27. `40-hello-world-germany-west-https`**
+Command: browser, `https://20.229.108.8/` and `https://20.218.111.44/`.
+Shows: Hello World, live, each region's own identity text, over HTTPS.
+Reference: self-explanatory.
+
+**28. `41-argocd-ui-login`**
+Command: browser, `https://localhost:8080` (through the `kubectl port-forward` tunnel).
+Shows: ArgoCD's own login page - proof the GitOps dashboard itself is reachable, not just the CLI.
+Reference: self-explanatory.
+
+**29. `42-traefik-default-cert-bug`**
+Command: browser certificate viewer, clicking the "Not secure" warning on either region's Hello World page.
+Shows: `TRAEFIK DEFAULT CERT` - the wrong certificate, before the `TLSStore` fix.
+Reference: self-explanatory - worth having this one ready specifically because it looks like nothing's wrong until this exact screen is checked.
+
+**30. `43-real-cert-west-eu-fixed`** / **31. `44-real-cert-germany-west-fixed`**
+Command: same certificate viewer, after applying the `TLSStore` fix and re-syncing.
+Shows: the real certificate this time - issued at the exact second cert-manager created it, valid for roughly 90 days.
+Reference: self-explanatory.
+
 Most of these need no glossary at all - they already say what happened in
 plain words. The four sections below are for the handful of rows where the
 output uses a specific vocabulary worth having ready.

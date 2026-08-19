@@ -49,6 +49,17 @@ routing, a full Prometheus/Grafana/Loki stack, Sealed Secrets, Trivy. None of
 these answer any of the 8 requirements. If asked about them live, they're
 "here's what I'd add next" answers, not demo material.
 
+**Parked as a maybe, only if there's real spare time at the end:** a
+WireGuard/OpenVPN VPN into one of the existing VMs, so ArgoCD (and anything
+else currently reached via `kubectl port-forward`) could be accessed
+through a private tunnel instead - closer to how real enterprises reach
+ArgoCD than either a port-forward or a public link. Doesn't answer any of
+the 8 requirements either, and Requirement 3 (finishing the live k6/HPA
+demo) and Requirement 5 (the proxy failover, not yet started) both come
+first. The written explanation already in README already covers this
+question for the presentation - building it is a nice-to-have on top of
+that, not something the answer depends on.
+
 **Requirements 6 and 7 are description requirements** — a clear written
 concept document is enough. A lightweight live Uptime Kuma dashboard is a
 cheap bonus (mainly because it makes the Requirement 5 failover demo more
@@ -92,24 +103,26 @@ sufficient — no further tightening planned.
       **Requirement 1 done**
 - [x] Hello World: Deployment + Service + ConfigMap (per-region identity
       text), required pod anti-affinity, HPA, Traefik ingress + cert-manager
-      self-signed TLS → **Requirements 2, 3, 4, manifests done** - base +
-      both region overlays complete. Nothing applied to either cluster yet
-      (deployment happens via ArgoCD, next) - not yet screenshot-worthy,
-      since these files can't be verified working until then.
+      self-signed TLS → **Requirements 2 and 4 done, live and verified on
+      both regions** - deployed via ArgoCD, real certificate confirmed in
+      browser (not Traefik's default - see README for that incident and
+      the `TLSStore` fix). Requirement 3's autoscaling half (the k6/HPA
+      live demo) still to actually run - see below.
 - [x] `scripts/load-test.js` (k6): drives real CPU load against Hello World
       so the HPA scale-up (2→6→8 pods) is genuine, not staged - watched live
       in `k9s` during the presentation. Exact VU count to reliably trigger
       scaling needs real tuning during rehearsal, not guessable in advance.
+- [x] Live k6/HPA demo → **verified**: HPA scaled 2 → 5 replicas under real
+      k6-generated load (300 VUs, ~1,457 req/s peak), watched live in `k9s`.
+      Round-robin `curl` proof still to do → **Requirement 3 done** once
+      that's confirmed too.
 - [ ] Self-hosted proxy: NGINX/HAProxy with 2 upstreams + health checks,
       failover demo script → **Requirement 5 done**
-- [~] ArgoCD: install on West Europe, manages both clusters from there,
+- [x] ArgoCD: installed on West Europe, manages both clusters from there,
       Application per region pointing at its Kustomize overlay (cherry #1) -
-      Hello World is being built as ArgoCD-managed from the start rather
-      than plain `kubectl apply` first and GitOps later. Both `Application`
-      manifests written (`k8s/argocd/`), pointed at the real GitHub repo.
-      Still to run, live: install ArgoCD itself, register Germany West
-      Central as a second managed cluster, apply both Applications, verify
-      both show `Synced`/`Healthy`.
+      **live and verified**: both Applications show `Synced`/`Healthy`,
+      Hello World actually running on both clusters, deployed entirely by
+      `git push` rather than `kubectl apply`.
 - [ ] GCP: Terraform for 1 Always-Free VM, same Ansible `common` +
       `k3s-server` roles, single-node K3s (cherry #2)
 - [ ] Uptime Kuma: **built and demoed live, not just described** - Denis

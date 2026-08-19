@@ -35,7 +35,12 @@ Thumbs.db
 # get run from inside this project folder instead of somewhere throwaway,
 # leaving a large executable sitting here that was never meant to be part
 # of the repo (this happened once already, a stray ~56MB kubectl binary in
-# ansible/). None of these belong in Git regardless of where they land.
-kubectl
-argocd-linux-amd64
-argocd
+# ansible/). Anchored to the repo root with a leading slash deliberately -
+# a bare "argocd" with no slash would match ANY file or folder named
+# argocd anywhere in the tree, which would have silently swallowed the
+# real, intentional k8s/argocd/ directory and everything added to it after
+# this rule existed. Only the repo root is actually at risk of a stray
+# downloaded binary landing in it.
+/kubectl
+/argocd-linux-amd64
+/argocd

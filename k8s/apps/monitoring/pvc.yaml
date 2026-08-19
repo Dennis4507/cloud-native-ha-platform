@@ -1,0 +1,23 @@
+# Uptime Kuma keeps every monitor it's configured, and their history, in a
+# small SQLite database file inside its own container. Without a real
+# volume, that file lives only in the pod's own throwaway storage - if the
+# pod ever restarts (a node reboot, a redeploy, anything) every monitor
+# configured up to that point is silently gone, and they'd all need to be
+# re-added by hand. A PersistentVolumeClaim keeps that file on real,
+# durable storage instead, independent of any one pod's lifetime.
+#
+# K3s already includes a default storage provisioner ("local-path"), which
+# is why this claim doesn't need to specify a storageClassName - it uses
+# whatever the cluster's default already is, the same way the rest of this
+# project avoids naming things that don't need to be named.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uptime-kuma-data
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

@@ -407,6 +407,162 @@ nodes` calls - run from this laptop, not over SSH, exactly as Requirement 1
 asks for it. Both regions show two `Ready` nodes. This is Requirement 1,
 fully satisfied.*
 
+### Hello World, deployed by GitOps instead of by hand (Requirements 2, 3, 4)
+
+With both clusters reachable, the next question was how the actual
+application should get onto them. The straightforward way is `kubectl
+apply` - write the YAML, run one command, done. Instead, this project
+deploys Hello World through ArgoCD, following a practice called GitOps: a
+Git repository is treated as the single source of truth for what should be
+running, and a tool - here, ArgoCD - continuously watches that repository
+and reconciles the cluster to match it automatically. Nobody runs a deploy
+command; pushing to Git *is* the deploy.
+
+One ArgoCD installation runs on West Europe and manages both clusters from
+there, rather than installing a separate, disconnected ArgoCD per region -
+partly because it's a more convincing thing to demonstrate (one push,
+both regions update), and partly because it's simply less to maintain. The
+actual Kubernetes manifests are organized with Kustomize: one shared base
+(the Deployment, Service, HPA, Ingress, and cert-manager's `ClusterIssuer`)
+that both regions build on, plus a small overlay per region containing only
+what's genuinely different between them - each one's own identity text and
+its own certificate request.
+
+Installing ArgoCD itself hit one immediate, narrow limit: one of its own
+Custom Resource Definitions (a CRD - a way to teach Kubernetes about a new
+object type it didn't originally know, the same mechanism cert-manager uses
+for `Certificate`) is large enough that `kubectl apply`'s normal method -
+storing a full copy of what was applied inside an annotation on the object,
+so it can diff against it next time - exceeded Kubernetes' hard 256KB limit
+on any single annotation. The fix was `--server-side`, which tracks the
+same diff on the API server itself instead of in that annotation, sidestepping
+the limit entirely.
+
+![Every ArgoCD pod running after the server-side install](docs/screenshots/34-argocd-pods-running.png)
+*Seven pods, all `Running` - the control plane that everything else in this
+section deploys through.*
+
+Connecting ArgoCD to Germany West Central - a second, separate cluster it
+needs to manage remotely - surfaced the same category of firewall gap as
+the K3s join incident earlier, just between two clusters instead of two
+nodes in one cluster: traffic from a pod on West Europe reaching Germany
+West Central's public address doesn't count as "internal" to Azure, even
+though both belong to the same project. The firewall needed an explicit
+rule allowing each region's own known addresses to reach the other's
+Kubernetes API port - written generally, by port and by known address, so
+any future tool needing this kind of access is already covered, not just
+ArgoCD. ArgoCD reported this as `InvalidSpecError` - it simply didn't
+recognize Germany West Central as a cluster it was allowed to deploy to,
+until the firewall rule and the cluster registration were both actually in
+place.
+
+A second gap appeared right after: the sync itself failed because
+cert-manager - the tool that actually issues the self-signed certificate
+Requirement 4 needs - had never been installed on either cluster. The
+`ClusterIssuer` and `Certificate` manifests were written assuming it would
+already be there; it wasn't, because installing it had never actually made
+it into the list of steps.
+
+![cert-manager missing - ArgoCD explaining exactly what it couldn't find](docs/screenshots/35-cert-manager-missing-error.png)
+*"Make sure the 'Certificate' CRD is installed on the destination
+cluster" - ArgoCD's own error naming the actual missing piece.*
+
+Installed on both clusters the same way as ArgoCD itself - trusting
+cert-manager's own official installer rather than hand-writing it.
+
+![cert-manager running on both clusters](docs/screenshots/36-cert-manager-installed-both-clusters.png)
+*Three pods per cluster, six total - the piece that was missing.*
+
+With both gaps closed, the sync actually succeeded, and ArgoCD's own
+health checks - not just "did the command exit with 0," but "is the
+resulting Deployment actually passing its readiness checks" - confirmed
+it.
+
+![West Europe, fully synced and healthy](docs/screenshots/37-west-eu-synced-healthy.png)
+*Every resource ArgoCD manages for this region - `Synced` and `Healthy`.*
+
+![Germany West Central, fully synced and healthy](docs/screenshots/38-germany-west-synced-healthy.png)
+*The same result, independently, for the second region.*
+
+### The certificate that looked right until it was actually checked
+
+Everything above reported success - `Healthy` in ArgoCD, a certificate
+object that existed and was marked ready. But checking the actual browser,
+rather than trusting the green status, told a different story: the
+certificate presented was Traefik's own generic built-in one, not the real
+certificate cert-manager had issued.
+
+![The wrong certificate - Traefik's generic default, not the real one](docs/screenshots/42-traefik-default-cert-bug.png)
+*`TRAEFIK DEFAULT CERT` - technically a certificate, just not the one this
+project actually built.*
+
+The reason: Traefik decides which certificate to present using SNI
+("Server Name Indication" - the hostname a browser sends during the TLS
+handshake, before it even asks for a specific page), matched against the
+hostnames configured on each Ingress. This project deliberately has no
+hostname at all - raw IPs only, per the "don't spend money on domains"
+rule - so Traefik had nothing to match against, and silently fell back to
+its own default rather than erroring. The real certificate was never
+broken; Traefik simply never knew to offer it.
+
+The fix is a `TLSStore` - one of Traefik's own custom resource types - that
+names a specific certificate as the *default*, used for any connection that
+doesn't match a more specific rule. One per region, since each runs its own
+separate Traefik instance with its own certificate.
+
+![The real certificate, confirmed on both regions](docs/screenshots/43-real-cert-west-eu-fixed.png)
+*Issued at the exact second cert-manager created it, expiring roughly 90
+days later - cert-manager's own default duration. Genuinely the right
+certificate this time, not just a status field saying so.*
+
+![The same fix, confirmed on Germany West Central too](docs/screenshots/44-real-cert-germany-west-fixed.png)
+*Same result, independently, for the second region.*
+
+### The result
+
+![Hello World, live over HTTPS - West Europe](docs/screenshots/39-hello-world-west-eu-https.png)
+*Requirements 2 and 4, actually working: a real certificate, terminated by
+Traefik, in front of the application.*
+
+![Hello World, live over HTTPS - Germany West Central](docs/screenshots/40-hello-world-germany-west-https.png)
+*The same application, the same certificate mechanism, an entirely
+separate cluster and region.*
+
+![ArgoCD's own dashboard, reachable and ready to sign in](docs/screenshots/41-argocd-ui-login.png)
+*The GitOps control plane itself - the thing that turned a `git push` into
+both regions updating automatically.*
+
+**A deliberate choice worth being explicit about:** ArgoCD is reached here
+through `kubectl port-forward` - a temporary tunnel from this laptop into
+the cluster - rather than through a permanent public link. A real Ingress
+for ArgoCD is entirely possible (it officially supports being served under
+a URL subpath, so it could share the same address as Hello World without
+needing a second one), but for a project this temporary and disposable, the
+extra public attack surface isn't worth it just for convenience - the
+tunnel already does the job, and it costs one command to bring back
+whenever it's actually needed.
+
+This is also honestly closer to how real production teams run it than a
+public link would be: enterprises rarely expose ArgoCD to the open
+internet either. The far more common pattern is keeping it reachable only
+from inside a private network or VPN, behind real company logins (SSO -
+"Single Sign-On," so nobody's juggling a separate ArgoCD-specific password)
+rather than the one shared `admin` account this project uses, with
+fine-grained permissions controlling which teams can even see or sync
+which applications - not everyone gets the same full access this project's
+sandbox admin account has.
+
+The same question applies to how ArgoCD notices a change in Git in the
+first place - covered earlier in this section (periodic polling, every few
+minutes, with a webhook as an optional speed-up, not a replacement). Real
+production setups almost always run both together: polling as the
+always-on safety net that keeps working even if a webhook delivery ever
+fails or was never configured, with a webhook layered on top so the common
+case reacts in seconds instead of minutes. That webhook, though, needs
+Git's hosting service to be able to reach ArgoCD directly - which needs
+exactly the kind of permanent public address this project deliberately
+chose not to build. The two decisions are connected, not separate ones.
+
 ## Screenshots
 
 This section fills in as each part of the platform actually comes to life -
@@ -419,10 +575,11 @@ and verified.
 - [x] Infrastructure actually applied - both virtual machine scale sets live (above)
 - [x] Both clusters showing healthy, ready Kubernetes nodes, reached
       directly from my own laptop (above) - **Requirement 1 done**
-- [ ] The Hello World page, loaded securely in a browser
+- [x] The Hello World page, loaded securely in a browser (above) -
+      **Requirements 2 and 4 done**
 - [ ] The application automatically adding more servers under load
 - [ ] Traffic automatically switching to the second region during a simulated failure
-- [ ] The GitOps dashboard showing both clusters in sync
+- [x] The GitOps dashboard showing both clusters in sync (above)
 - [ ] The Google Cloud server, built with the same automation
 - [ ] A real DNS troubleshooting session on a server
 
