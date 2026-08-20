@@ -1,0 +1,25 @@
+# Exists for one reason: to make Requirement 3's round-robin proof visible.
+# Both hello-world pods in a region serve byte-for-byte identical HTML (the
+# same ConfigMap, mounted into both), so a plain curl loop against the
+# Service would show nothing different between requests even though the
+# load-balancing underneath is real. This file replaces NGINX's own default
+# server block with an identical one plus one extra line: add_header, using
+# NGINX's built-in $hostname variable. In Kubernetes, a pod's hostname
+# defaults to its own pod name unless overridden - nothing here overrides
+# it - so this turns into a free, always-on "which pod answered this
+# request" header, with zero application code and no change to the page
+# itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-world-nginx-conf
+  namespace: hello-world
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+        add_header X-Pod-Name $hostname always;
+    }

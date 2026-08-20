@@ -8,6 +8,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - deployment.yaml
+  - nginx-config.yaml
   - service.yaml
   - hpa.yaml
   - cluster-issuer.yaml
