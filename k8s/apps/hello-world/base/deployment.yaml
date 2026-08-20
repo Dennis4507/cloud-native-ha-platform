@@ -16,6 +16,19 @@ spec:
   # next step) can scale this up further under load, but it never scales
   # below this floor.
   replicas: 2
+  # The default rolling-update strategy tries to create a *new* pod before
+  # removing an old one, so there's a brief moment with 3 pods wanting to
+  # exist at once. With only 2 nodes and the required anti-affinity rule
+  # below, there's no third node slot for that surge pod to ever land on -
+  # it deadlocks in Pending forever, not just temporarily slow. Setting
+  # maxSurge to 0 tells Kubernetes to free a node first (delete an old pod)
+  # before scheduling the replacement, which fits a 2-node region's real
+  # capacity instead of assuming spare room that doesn't exist here.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: hello-world
@@ -24,19 +37,29 @@ spec:
       labels:
         app: hello-world
     spec:
-      # This is the setting that makes Requirement 3's "multiple nodes" claim
-      # real instead of just likely. "Required" (not "preferred") means the
-      # scheduler will refuse to place two hello-world pods on the same node
-      # even under resource pressure - with "preferred," Kubernetes quietly
-      # drops the rule exactly when the cluster is busiest, which is the
-      # worst possible moment for a high-availability guarantee to disappear.
+      # Started as "required" (a hard rule: never two hello-world pods on one
+      # node). That's the strongest possible HA guarantee, but it collided
+      # with reality live: this region only has 2 nodes, and the HPA's own
+      # maxReplicas of 10 meant any scale-up past 2 pods had nowhere to go -
+      # the 3rd pod deadlocked in Pending forever, confirmed via `kubectl
+      # describe pod` showing "0/2 nodes are available: 2 node(s) didn't
+      # match pod anti-affinity rules." Switched to "preferred": the
+      # scheduler still tries hard to spread pods across separate nodes
+      # first (weight: 100 is the maximum preference), but will stack extra
+      # pods onto an already-used node rather than leave them permanently
+      # unschedulable once every node has one. The baseline 2-replica case -
+      # what actually proves Requirement 3's "distributed across multiple
+      # nodes" claim - is unaffected either way; this only changes what
+      # happens once the HPA tries to grow past node count.
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: hello-world
-              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: hello-world
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: nginx
           image: nginx:1.27-alpine
