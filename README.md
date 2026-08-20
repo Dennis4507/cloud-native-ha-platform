@@ -750,9 +750,137 @@ traffic.*
 absorb the load - k6's own numbers: 381,329 iterations, roughly 1,457
 requests per second at peak.*
 
-Requirement 3's other half - repeated `curl` calls against the Service
-showing responses alternate between pods on different nodes - is still
-outstanding as of this write-up, not yet demonstrated.
+### Requirement 3's other half: making round-robin visible, and a real scheduling deadlock along the way
+
+The routing itself was never in question - K3s's Service has load-balanced
+across ready pods since the day it was deployed. The problem was purely
+one of visibility: both `hello-world` pods in a region mount the exact
+same ConfigMap as their web page, so six `curl` calls in a row would have
+returned six byte-for-byte identical responses. Correct behavior,
+invisible proof. The fix was `k8s/apps/hello-world/base/nginx-config.yaml`
+- one extra line of NGINX config, `add_header X-Pod-Name $hostname
+always;`, using NGINX's built-in `$hostname` variable, which in
+Kubernetes defaults to the pod's own name. Zero application code, zero
+change to the page itself - just a label on each response saying which
+pod actually answered it.
+
+Pushing that change surfaced a real scheduling problem the moment ArgoCD
+tried to roll it out - both `hello-world-west-eu` and
+`hello-world-germany-west` Applications went `Synced` (the cluster matched
+Git) but `Degraded` (the actual pods weren't healthy), and a new pod sat
+`Pending` for over half an hour:
+
+![The new pod stuck Pending after the config change](docs/screenshots/78-hello-world-pod-stuck-pending.png)
+*Two old pods still `Running` (21h old), one new pod `Pending` (32m and
+climbing) - the rollout was stuck, not just slow.*
+
+![kubectl describe pod confirming why](docs/screenshots/79-describe-pod-anti-affinity-failure.png)
+*"0/2 nodes are available: 2 node(s) didn't match pod anti-affinity
+rules" - the actual reason, not a guess.*
+
+The cause: two files disagreed with each other. `deployment.yaml`'s pod
+anti-affinity was `required` - a hard rule, never two `hello-world` pods
+on the same node - which was entirely correct for 2 replicas on 2 nodes.
+`hpa.yaml`, separately, allowed scaling up to 10 replicas. Nobody had
+checked those two numbers against each other before now: the moment a
+rolling update needed a 3rd pod to exist even briefly (Kubernetes' default
+strategy creates a replacement before removing the old one), there was no
+third node for it to land on, and it deadlocked in `Pending` permanently,
+not temporarily.
+
+This is a cost-vs-capacity trade-off, not a mistake in the original
+design - the project's "don't spend any money" constraint means the
+cluster stays fixed at 2 nodes per region rather than growing to match
+whatever the HPA might ask for. In a production system with an actual
+budget, the correct fix is a **Cluster Autoscaler** - a separate
+controller that watches for pods stuck `Pending` due to no available
+node and automatically adds real VM capacity to match, closing this gap
+properly instead of working around it. That wasn't built here on purpose,
+for the same reason Traffic Manager and a permanent extra node weren't:
+it costs real money to run. The fix that shipped instead changes two
+things in `deployment.yaml`:
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+```
+frees a node by removing an old pod *before* scheduling its replacement,
+instead of trying to add a third pod first - matching what a 2-node
+region can actually deliver.
+
+```yaml
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm: ...
+```
+softens the anti-affinity rule from "never" to "strongly prefer, but
+allow if there's no choice" - so a scale-up past node count stacks pods
+onto an already-used node rather than deadlocking. The trade-off, stated
+plainly: `required` guarantees losing one node costs exactly one pod;
+`preferred` doesn't - if pods end up stacked, one node failure could take
+more than one down at once. For a stateless demo app with no real users,
+that's a reasonable trade against a hard block on the HPA ever doing its
+job.
+
+![Both Applications healthy again after the fix](docs/screenshots/81-argocd-both-apps-healthy-again.png)
+*`Healthy` and `Synced`, both regions - the same signal that caught the
+problem now confirming it's gone.*
+
+![Two fresh pods, both Running, the stuck one gone](docs/screenshots/82-hello-world-pods-running-after-fix.png)
+*New pod hashes, both `1/1 Running`, ages in minutes not hours - the
+rolling update finally completed once it had somewhere to put the new
+pod.*
+
+For the record, the change itself:
+
+![The deployment.yaml diff: required to preferred anti-affinity](docs/screenshots/80-deployment-yaml-diff-required-to-preferred.png)
+
+With the cluster healthy again, the round-robin proof - a temporary debug
+pod, run from inside the cluster since the Service's ClusterIP isn't
+reachable from a laptop directly, curling the Service and reading back the
+`X-Pod-Name` header each time - came back clean on the first try: six
+requests, alternating cleanly between the two existing pods every single
+time.
+
+That alone would have satisfied the requirement, but it's a stronger demo
+combined with the autoscaling proof rather than shown separately: the
+round-robin curl loop left running continuously (`while true`, instead of
+a fixed 6 requests) in one pane, `k6` driving real load against West
+Europe's public endpoint in a second, and `k9s` watching the replica count
+in a third.
+
+![All three running together, right as k6 starts ramping up](docs/screenshots/83-combined-demo-baseline-k6-starting.png)
+*3 pods total (2 `hello-world` + the temporary debug pod), CPU still low,
+k6 at 24 of its eventual 300 virtual users - the "before" state, on
+purpose, so the change afterward is obvious by comparison.*
+
+![CPU crossing the HPA's target as load ramps up](docs/screenshots/84-cpu-spiking-hpa-triggers-new-pods.png)
+*The two original pods pushed to 89% and 95% of their CPU request - well
+past the 60% target - with new pods already `ContainerCreating` in
+response. This is the HPA reacting to genuine measured load, not a timer.*
+
+![Four pods running, round-robin proof spanning all of them live](docs/screenshots/85-four-pods-roundrobin-live.png)
+*The curl loop's output (right pane) is no longer alternating between 2
+names - it's cycling through 4, matching the 4 `hello-world` pods now
+`Running` in `k9s` (left pane). The same scale-up, watched from two
+independent angles at the same moment.*
+
+![Peak scale: 6 pods, round-robin proof spanning all of them](docs/screenshots/86-six-pods-roundrobin-peak-scale.png)
+*7 pods total (6 `hello-world` + the debug pod), and the curl loop rotating
+across all 6 real pod names - `spv28`, `t952h`, `69mkl`, `sftfx`, `q975w`,
+`d2pcp` - genuine round-robin across a genuinely autoscaled fleet, both
+mechanisms proven live, at the same time, from the same commands.*
+
+**Requirement 3 is fully done.** Not just "the HPA can add pods" and
+separately "the Service can route between pods," shown one after another
+- one continuous run where the panel watches the pool of pods grow under
+real load and watches every new pod join the routing rotation the moment
+it's ready, live.
 
 ### Uptime Kuma, live and watching both regions
 
@@ -778,8 +906,9 @@ Requirement 5 failover demo.
 *Both monitors `Up`, `200 - OK`, checked directly against the real
 endpoints - not a mockup.*
 
-A third monitor, watching the proxy's own address, gets added once the
-proxy itself exists.
+A third monitor, `(GCP) Failover Proxy`, watches the proxy's own address
+independently of the two region monitors above - see the Requirement 5
+section for what it caught during the live failover demo.
 
 ### The GCP showcase (cherry #2)
 
@@ -1017,9 +1146,9 @@ and verified.
       directly from my own laptop (above) - **Requirement 1 done**
 - [x] The Hello World page, loaded securely in a browser (above) -
       **Requirements 2 and 4 done**
-- [x] The application automatically adding more servers under load (above)
-      - HPA scale-up half done live; round-robin `curl` proof still
-      outstanding
+- [x] The application automatically adding more servers under load, and
+      round-robin routing across all of them, proven together in one
+      combined live run (above) - **Requirement 3 done**
 - [x] The self-hosted NGINX proxy built and verified, serving West Europe
       through it over HTTPS (above)
 - [x] Traffic automatically switching to the second region during a

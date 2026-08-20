@@ -114,8 +114,22 @@ sufficient — no further tightening planned.
       scaling needs real tuning during rehearsal, not guessable in advance.
 - [x] Live k6/HPA demo → **verified**: HPA scaled 2 → 5 replicas under real
       k6-generated load (300 VUs, ~1,457 req/s peak), watched live in `k9s`.
-      Round-robin `curl` proof still to do → **Requirement 3 done** once
-      that's confirmed too.
+      Round-robin proof needed a fix first: both pods in a region served
+      identical HTML, so nothing visibly proved which pod answered a given
+      request. Added `nginx-config.yaml` (one `add_header X-Pod-Name
+      $hostname always;` line) to fix that - which then surfaced a real
+      scheduling deadlock (documented in README): `deployment.yaml`'s
+      `required` anti-affinity and `hpa.yaml`'s `maxReplicas: 10` disagreed
+      about how much room 2 nodes actually have, so a 3rd pod deadlocked in
+      `Pending` permanently. Fixed via `maxSurge: 0` (free a node before
+      scheduling the replacement) and switching anti-affinity to
+      `preferred` (stack rather than deadlock past node count) - both
+      ArgoCD Applications back to `Healthy`/`Synced`. Round-robin proof run
+      for real, combined with a second live k6 run: curl loop, k6, and
+      `k9s` running simultaneously in 3 panes, watched scaling from 2 → 6
+      pods while the curl loop's rotation grew from 2 → 6 pod names in
+      lockstep - both halves of Requirement 3 proven together, live, in
+      one continuous run → **Requirement 3 done**.
 - [x] Self-hosted proxy: NGINX installed via its own Ansible role on the GCP
       showcase VM, 2 upstreams (West Europe primary, Germany West Central
       backup) + passive health checks (`max_fails`/`fail_timeout`), self-
