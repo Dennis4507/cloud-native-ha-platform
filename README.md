@@ -434,9 +434,15 @@ object type it didn't originally know, the same mechanism cert-manager uses
 for `Certificate`) is large enough that `kubectl apply`'s normal method -
 storing a full copy of what was applied inside an annotation on the object,
 so it can diff against it next time - exceeded Kubernetes' hard 256KB limit
-on any single annotation. The fix was `--server-side`, which tracks the
-same diff on the API server itself instead of in that annotation, sidestepping
-the limit entirely.
+on any single annotation.
+
+![The exact error - one CRD too large for a normal apply](docs/screenshots/49-argocd-crd-size-limit-error.png)
+*`metadata.annotations: Too long: may not be more than 262144 bytes` -
+every other resource in the same install already succeeded above this
+line; only this one object hit the limit.*
+
+The fix was `--server-side`, which tracks the same diff on the API server
+itself instead of in that annotation, sidestepping the limit entirely.
 
 ![Every ArgoCD pod running after the server-side install](docs/screenshots/34-argocd-pods-running.png)
 *Seven pods, all `Running` - the control plane that everything else in this
@@ -563,6 +569,362 @@ Git's hosting service to be able to reach ArgoCD directly - which needs
 exactly the kind of permanent public address this project deliberately
 chose not to build. The two decisions are connected, not separate ones.
 
+### Choosing how Requirement 5's traffic routing actually works
+
+Requirement 5 asks for traffic to switch to the second region automatically
+if the first one fails, and the brief itself names two acceptable ways to
+do it: "simulated with a proxy-server as load balancer, OR with a PaaS
+cloud-native service" (PaaS - "Platform as a Service," a cloud product
+where the provider runs the underlying system for you, rather than a
+server you manage yourself). Before building anything, it was worth
+actually checking whether a PaaS option - the kind of DNS-based failover
+product a cloud provider sells - was realistically usable here, rather
+than assuming the free, self-hosted route by default.
+
+Every DNS-based option that was checked hit the same wall, for one of two
+reasons: real, unavoidable cost, or requiring an actual registered domain
+name - which the brief explicitly forbids spending money on.
+
+Every row below was checked directly against each provider's own current
+pricing page or official documentation, not recalled from memory - worth
+saying plainly, since it would be easy to assume the self-hosted route was
+chosen just because it seemed simplest, rather than because every
+alternative was actually verified first.
+
+| Option | Free DNS hosting? | Free health-check failover? | Needs a domain? |
+|---|---|---|---|
+| Azure Traffic Manager | - | No free tier at all - and critically, it bills for *health checks themselves*, continuously, whether or not any real traffic is happening | Yes |
+| Azure Front Door | - | No - **$35/month minimum** on the Standard tier, $330/month on Premium, plus per-request and data-transfer charges on top | Yes |
+| Azure DNS (plain) | Small monthly cost | Doesn't do health-based failover at all - just returns whatever static record it's given | Yes |
+| GCP Cloud DNS | Small monthly cost | Doesn't do health-based failover itself either - that's Cloud Load Balancing's job, a separate product | Yes |
+| GCP Cloud Load Balancing | - | Confirmed absent from Google's own official Always Free product list entirely - a real, ongoing cost | Yes |
+| AWS Route 53 | $0.50 per hosted zone/month | The widely-quoted "50 free health checks" only covers endpoints *hosted on AWS* - an external Azure address costs $0.75/health check/month instead | Yes |
+| Cloudflare | Free authoritative DNS | Health-check-based failover ("Load Balancing") is confirmed, from Cloudflare's own docs, as a paid add-on - not included in the free plan | Yes |
+| Cloudflare Workers | Free (100k requests/day, no domain needed for the Worker's own address) | Would need custom code, not a built-in product - but genuinely possible in principle | Not for the Worker itself, but its own `fetch()` calls to a backend **cannot target a bare IP address at all** - Cloudflare's own docs confirm subrequests only accept a real DNS hostname, so reaching either region's raw IP would still need a domain added to Cloudflare first |
+| NS1 | - | Now IBM's enterprise "NS1 Connect" product line following an acquisition - not a self-serve free option | Yes |
+
+The domain requirement is the one that matters most: every single option
+in that table needs a real registered domain name somewhere in the chain,
+regardless of how its health-check pricing works out - and the brief's own
+cost rule rules that out entirely, on its own, independent of everything
+else in the table. Cloudflare Workers looked like it might be the one
+genuine exception - it's free, and it doesn't need a domain for its *own*
+address (Cloudflare hands out a free `workers.dev` subdomain automatically)
+- but the domain requirement turns out to just move, not disappear: a
+Worker's own outbound `fetch()` calls are documented as unable to target a
+bare IP address at all, only a real hostname. Since both regions are
+reached by raw IP with no domain behind either one, the Worker could never
+actually reach them either. Worth checking properly before ruling it out
+on a guess, and worth being honest that it came very close to being the
+better answer.
+
+A plain script - Python, or anything else - implementing the same
+health-check-and-forward logic by hand was also considered. It doesn't
+change the underlying decision, though: a script still needs somewhere to
+run continuously, outside both Azure regions, for free - the exact same
+hosting question already answered by the GCP VM. NGINX already does this
+specific job (check a backend's health, forward to whichever's up) in a
+few lines of built-in configuration, well-tested already - no real reason
+to reimplement it by hand instead.
+
+That makes the self-hosted proxy not a fallback chosen because the "real"
+option was too expensive - it's literally the other option the brief names
+outright. The PaaS route was checked seriously and is genuinely blocked
+for this project's specific constraints, not skipped by default.
+
+**Where the proxy actually runs** is its own small decision. It can't run
+as a workload inside either K3s cluster, and it can't run in a different
+Availability Zone within the same region as one of them either - both
+would mean the proxy fails alongside the exact region it's supposed to
+detect as failed, since this demo simulates a regional failure at the
+network level, not a single datacenter's worth. It ends up running as its
+own independent process on the GCP VM (built separately as its own
+showcase, described below) - the one piece of infrastructure in this
+project that's genuinely outside both Azure regions and doesn't depend on
+any one laptop staying switched on.
+
+### Requirement 3, finished: the live autoscaling demo
+
+The HPA (HorizontalPodAutoscaler - the Kubernetes controller that adds or
+removes copies of an app automatically based on measured load) was already
+configured, but never actually watched scaling under real traffic until
+this point. Baseline first, confirmed before any load started:
+
+![HPA baseline - 2 replicas, near-zero CPU](docs/screenshots/45-hpa-baseline-2-replicas.png)
+*2 replicas, 0% of the 60% CPU target - the starting point everything else
+gets compared against.*
+
+`k6` (the load-testing tool) ramping up against West Europe's real HTTPS
+endpoint pushed genuine CPU load, and the HPA reacted on its own -
+watched live in `k9s`, a terminal dashboard for browsing a cluster's
+resources:
+
+![Pods scaling up mid-load-test](docs/screenshots/46-hpa-scaling-up-k9s.png)
+*5 pods total - 2 already `Running`, well over their CPU request (146%
+and 134% of it), 3 more `Pending` as the HPA reacts.*
+
+![k6 and k9s running side by side](docs/screenshots/47-k6-load-test-running.png)
+*300 virtual users, genuinely hitting the real endpoint - not staged
+traffic.*
+
+![The HPA settled at 5 replicas](docs/screenshots/48-hpa-scaled-to-5-replicas.png)
+*`REPLICAS: 5`, CPU already cooling back down to 25% as the extra pods
+absorb the load - k6's own numbers: 381,329 iterations, roughly 1,457
+requests per second at peak.*
+
+Requirement 3's other half - repeated `curl` calls against the Service
+showing responses alternate between pods on different nodes - is still
+outstanding as of this write-up, not yet demonstrated.
+
+### Uptime Kuma, live and watching both regions
+
+Requirement 6 asks for a description of how availability would be
+assessed - Uptime Kuma is what turns that description into something
+actually watched happening, not just written down. Deployed the same way
+as everything else in this project now: through ArgoCD, from Git, not a
+manual `kubectl apply`.
+
+Two monitors, one per region, each checking that region's real public
+HTTPS endpoint directly - with one setting that genuinely mattered:
+"Ignore TLS/SSL error for HTTPS websites" has to be switched on, since
+both regions use self-signed certificates Uptime Kuma has never seen
+before and would otherwise treat as a failure. The check interval and
+timeout were also both shortened from their defaults (30 seconds instead
+of 60, a 5-second timeout instead of 24) specifically for the live
+demo - the endpoints themselves respond in well under a second when
+healthy, so there's no reason to make the panel wait through a generous
+default timer to see a real failure reflected on screen later, during the
+Requirement 5 failover demo.
+
+![Both regions green](docs/screenshots/50-uptime-kuma-both-regions-green.png)
+*Both monitors `Up`, `200 - OK`, checked directly against the real
+endpoints - not a mockup.*
+
+A third monitor, watching the proxy's own address, gets added once the
+proxy itself exists.
+
+### The GCP showcase (cherry #2)
+
+GCP (Google Cloud Platform) is the one deliberate differentiator tied
+directly to the actual job title this project was written for - the
+point being proven is "the same Terraform and Ansible pattern works
+identically on a completely different cloud provider," not adding a third
+region to the failover story. This VM never runs Hello World and is never
+a failover target - it's its own separate showcase, and it also ends up
+hosting Requirement 5's proxy as an independent process, for reasons
+already covered above.
+
+**Getting the account itself set up** took its own sequence: a fresh GCP
+project, isolated from an existing unrelated project already on the same
+account (same reasoning as the separate Azure sandbox identity earlier),
+the Compute Engine API enabled, and a billing account linked - required by
+Google even to stay entirely within the Always Free tier, not itself a
+sign of anything being charged.
+
+![Project creation and billing linked](docs/screenshots/51-gcp-project-and-billing-setup.png)
+*A dedicated project, isolated from other work on the same account, with
+billing linked - required before Google allows almost anything, free tier
+or not.*
+
+**Authenticating Terraform to actually use the account** turned out to be
+the first real snag. `gcloud auth application-default login` kept
+completing "successfully" while quietly granting a narrower permission
+scope than requested - confirmed only once an actual `terraform apply`
+failed on it directly:
+
+![Insufficient scope, even though login reported success](docs/screenshots/53-gcp-insufficient-scope-error.png)
+*`ACCESS_TOKEN_SCOPE_INSUFFICIENT` - the credential file existed and
+looked valid, but didn't actually carry the permission Terraform needed
+to create anything.*
+
+The fix was requesting exactly one scope explicitly (`cloud-platform`)
+instead of the default bundle of several, which stopped Google's consent
+screen from silently narrowing what got granted. Once that was sorted,
+the same remote state backend already built for Azure could just be
+reused - a different `key` (the filename within that same storage
+account) keeps this project's state separate from Azure's, without
+needing an entirely separate GCP-native backend just for one small VM.
+
+![Terraform initialized against the reused backend](docs/screenshots/52-gcp-terraform-init-success.png)
+*Same Azure storage account, same backend, a different key - no reason to
+build a second one just because the resources being tracked happen to be
+on a different cloud.*
+
+![Terraform apply complete - 8 resources, real IP](docs/screenshots/54-gcp-terraform-apply-complete.png)
+*Network, firewall rules, a dedicated identity with no key file, a static
+IP, and the VM itself - all live.*
+
+**Then Ansible, same roles, unmodified:**
+
+![The inventory, with the new host added](docs/screenshots/55-gcp-inventory-diff.png)
+*One new entry, in the same `k3s_server` group as both Azure regions - a
+single K3s server is already a complete cluster on its own, no worker
+node needed.*
+
+![Ansible reaching the new VM successfully](docs/screenshots/56-gcp-ansible-ping-success.png)
+*Before touching anything else - confirming SSH actually works.*
+
+![K3s installed fresh on the GCP node](docs/screenshots/57-gcp-first-k3s-install-play-recap.png)
+*The same `common` and `k3s-server` roles already proven on Azure,
+pointed at a different cloud's API entirely - zero GCP-specific code in
+either role.*
+
+![The merge script updated for a third cluster](docs/screenshots/58-kubeconfig-merge-gcp-diff.png)
+*Same script, same reasoning, one more region added to what it merges.*
+
+**Then the second real incident** - `kubectl` against the new cluster
+failed with a TLS handshake timeout, a different and more interesting
+problem than a firewall block (already ruled out: the IP matched, and a
+raw TCP connection to the port succeeded). The actual cause was visible
+directly in K3s's own logs on the node:
+
+![K3s's own internal queries taking over a minute](docs/screenshots/59-gcp-slow-sql-tls-timeout-log.png)
+*Database queries that should take milliseconds taking 8, 38, even over
+60 seconds - K3s's own components failing to reach K3s's own API in time,
+which is exactly why a request from outside also timed out.*
+
+![91.8% of CPU time spent waiting on disk](docs/screenshots/60-gcp-io-wait-91-percent.png)
+*Not a CPU or memory problem - `%wa` (I/O wait) confirms the disk itself
+was the bottleneck.*
+
+The root cause: the Always Free tier's storage allowance is specifically
+standard (HDD, spinning-disk) persistent disk - confirmed directly from
+Google's own documentation before considering any fix, since switching to
+faster storage would have introduced real, ongoing cost. K3s's internal
+datastore does frequent small writes, which is a poor fit for that
+specific kind of disk - and every extra default component (Traefik,
+K3s's built-in ServiceLB) added its own constant reconciliation traffic
+on top of an already-struggling disk. Neither is needed here, since this
+showcase never runs an app requiring an ingress controller or a
+LoadBalancer Service - so both got disabled, specifically for this one
+node, and K3s was cleanly reinstalled.
+
+![I/O wait gone after disabling unneeded components](docs/screenshots/61-gcp-io-wait-fixed-after-reinstall.png)
+*`%wa` dropped from 91.8% to 0.0% - confirmed before even attempting
+`kubectl` again.*
+
+![The GCP node, Ready, reached directly from the laptop](docs/screenshots/62-gcp-showcase-ready-final.png)
+*All three clusters - two Azure regions and this one - now live in a
+single merged kubeconfig, each reachable by its own context.*
+
+### Requirement 5's traffic router, and a six-hour lesson in checking my own work
+
+The same GCP (Google Cloud Platform) showcase VM (Virtual Machine) also runs
+Requirement 5's actual traffic router - an NGINX reverse proxy, installed as
+a plain systemd service, deliberately independent of the K3s cluster running
+alongside it on the same machine. It sits in front of both Azure regions:
+West Europe as the primary backend, Germany West Central as a passive-health-
+checked backup. If West Europe stops answering, NGINX's own `max_fails` /
+`fail_timeout` settings mark it down and start sending traffic to Germany
+West Central instead, with no DNS change and no manual step involved.
+
+![The node ready, and the proxy's own IP already serving a 200 OK, moments before the proxy install began](docs/screenshots/63-gcp-showcase-ready-before-proxy-install.png)
+*All three `kubectl` contexts healthy, and a direct `curl` to the GCP node's
+IP already returning `200 OK` from the NGINX that ships with a fresh Ubuntu
+image - confirmed clean before the proxy role touched anything.*
+
+Installing that proxy turned into the longest single debugging session of
+this whole build - close to six hours, across three separate but related
+problems. Documenting it in full because the actual lesson (the third
+problem) is more valuable than the demo itself: a clean architecture doesn't
+protect you from a sloppy operating habit.
+
+**Problem 1 - the install itself hung.** The Ansible run reached the
+`Install NGINX` task and simply stopped producing output.
+
+![ansible-playbook stuck at the Install NGINX task, no error, no progress](docs/screenshots/64-proxy-install-hung-on-nginx-task.png)
+*No error - the play just stopped advancing after this task started.*
+
+`ps aux | grep -i apt`, run over a second SSH (Secure Shell) session against
+the same node, found the actual cause: Ubuntu's own background
+`update-notifier/apt-check` process - the thing that silently checks for
+available package updates - sitting in Linux process state `D` (marked
+`DN+` in the listing below). A `D`-state process is in *uninterruptible
+sleep*: the kernel has it blocked on I/O (Input/Output - in this case, disk
+reads or writes) that hasn't completed yet, and **`kill -9` cannot touch it**
+- `SIGKILL` is delivered to the process, not to the kernel operation it's
+waiting on, so the process simply cannot respond to any signal until that
+I/O either finishes or the machine reboots. This is the same slow
+`pd-standard` (HDD) disk from the earlier I/O-wait incident above, showing
+up in a new place: this time it wasn't K3s's own database being slow, it
+was Ubuntu's routine update check, and it happened to be holding the exact
+same `apt`/`dpkg` package-manager lock that `apt-get install nginx` also
+needed.
+
+![apt-check caught in D-state, unkillable, holding the apt lock](docs/screenshots/65-apt-check-stuck-in-d-state.png)
+*`DN+` in the `STAT` column - uninterruptible sleep. This process cannot be
+killed; only a reboot (or the I/O finally completing on its own) clears it.*
+
+**Problem 2 - the first fix wasn't the whole fix.** Masking the systemd
+timers that normally trigger `apt-check` (`apt-daily.timer`,
+`apt-daily-upgrade.timer`, `motd-news.timer`) and rebooting looked like a
+complete fix - `systemctl disable --now` reported success, cleanly removing
+each timer's symlink. But retrying the playbook stalled again, this time
+even earlier, at `Gathering Facts` - before NGINX's own task had even
+started. Something *other* than those three known timers was still
+triggering the same slow-disk contention on every boot, most likely a
+login-banner script or a `cloud-init` step running independently of
+systemd's timer system. Rather than keep hunting for that exact remaining
+trigger with the clock running, the fix that actually shipped
+(`ansible/roles/proxy/tasks/main.yml`) goes one level more direct: `chmod
+0000` on `/usr/lib/update-notifier/apt-check` itself, so the program cannot
+be executed *at all*, however it gets called. Removing every permission
+from the binary makes the question "what's still triggering it?" stop
+mattering.
+
+![Timers masked and the retry launched - which stalled again anyway](docs/screenshots/66-timers-masked-retry-stalls-again.png)
+*The masking command succeeded (three timer symlinks removed), and the
+retry got further into the play before stalling again - proof the first fix
+was real but incomplete, not proof it had failed outright.*
+
+**Problem 3 - the actual root cause, and the one that mattered most.**
+After the `chmod 0000` fix, the playbook was retried several more times
+over the next hour without any of those retries clearly finishing or
+clearly failing - each one looked "stuck" in roughly the same place, which
+looked at the time like the same disk problem recurring yet again. It
+wasn't. Running `ps aux | grep ansible-playbook` - a check I should have
+made standard *before* the very first retry, and didn't - showed two
+separate `ansible-playbook` processes running at once, started thirteen
+minutes apart, both targeting the same node with `--limit gcp-showcase`.
+Each retry had been launched without first confirming the previous one had
+actually exited, and every one of those overlapping processes was fighting
+the others for the exact same remote `apt`/`dpkg` lock - manufacturing
+fresh contention on top of a disk that, by this point, had already been
+fixed. Denis caught this himself, correctly, mid-session: *"dont we first
+need to check that no other ansible playbook is running? you keep making me
+run playbook but not check thats how we ended up with three playbooks."*
+That's now a standing rule for every retry going forward, on this project or
+any other: check `ps aux | grep ansible-playbook` first, and `pkill -9 -f
+ansible-playbook` to clear any leftover process, *before* launching another
+one - not after the second or third hang.
+
+![ps aux catching two overlapping ansible-playbook processes, thirteen minutes apart](docs/screenshots/67-duplicate-ansible-playbook-processes-found.png)
+*The actual root cause of most of this session's apparent "hanging" -
+`ps aux | grep -i apt` shows a clean node with nothing stuck; the real
+problem was one command away, in `ps aux | grep ansible-playbook`.*
+
+Once those duplicate processes were killed and the retry was launched alone,
+the play ran straight through without a single further pause.
+
+![The proxy role's full run, top to bottom, no interruption](docs/screenshots/68-proxy-install-clean-run-success.png)
+*`PLAY RECAP ... ok=22 changed=6 unreachable=0 failed=0` - the same role
+that stalled for hours completed cleanly once it was only running once.*
+
+![NGINX, reached over HTTPS at the proxy's own address, serving West Europe's page through it](docs/screenshots/69-proxy-serving-west-eu-over-https.png)
+*`curl -sk https://136.115.185.153/` - the `-k` flag accepts the proxy's own
+self-signed certificate, the same free, zero-dependency approach used by
+`cert-manager` inside each K3s cluster - returning West Europe's Hello World
+HTML, proxied end to end over TLS.*
+
+The honest read on the six hours: the first two problems were real and
+worth documenting (a slow Always-Free disk can wedge an unrelated apt
+install through nothing more exotic than an OS's own background update
+checker), but they were solved within the first ninety minutes. The other
+four-plus hours were spent fighting a problem I had personally caused by
+retrying without checking - a reminder that in operations work, an
+unverified assumption ("that process must have exited by now") costs far
+more time than the two seconds it takes to actually check.
+
 ## Screenshots
 
 This section fills in as each part of the platform actually comes to life -
@@ -577,10 +939,15 @@ and verified.
       directly from my own laptop (above) - **Requirement 1 done**
 - [x] The Hello World page, loaded securely in a browser (above) -
       **Requirements 2 and 4 done**
-- [ ] The application automatically adding more servers under load
+- [x] The application automatically adding more servers under load (above)
+      - HPA scale-up half done live; round-robin `curl` proof still
+      outstanding
+- [x] The self-hosted NGINX proxy built and verified, serving West Europe
+      through it over HTTPS (above) - the traffic router itself is live;
+      the failover switch is the next thing to demonstrate
 - [ ] Traffic automatically switching to the second region during a simulated failure
 - [x] The GitOps dashboard showing both clusters in sync (above)
-- [ ] The Google Cloud server, built with the same automation
+- [x] The Google Cloud server, built with the same automation (above)
 - [ ] A real DNS troubleshooting session on a server
 
 ## How this is being built

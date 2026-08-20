@@ -116,22 +116,42 @@ sufficient — no further tightening planned.
       k6-generated load (300 VUs, ~1,457 req/s peak), watched live in `k9s`.
       Round-robin `curl` proof still to do → **Requirement 3 done** once
       that's confirmed too.
-- [ ] Self-hosted proxy: NGINX/HAProxy with 2 upstreams + health checks,
-      failover demo script → **Requirement 5 done**
+- [x] Self-hosted proxy: NGINX installed via its own Ansible role on the GCP
+      showcase VM, 2 upstreams (West Europe primary, Germany West Central
+      backup) + passive health checks (`max_fails`/`fail_timeout`), self-
+      signed TLS of its own, `scripts/failover-demo.sh` written - **build
+      verified**: `curl -sk https://<proxy-ip>/` returns West Europe's page
+      through the proxy over HTTPS. Real incident along the way (documented
+      in README): the same slow Always Free disk from the GCP incident above
+      wedged the plain `apt-get install nginx` step too, first via Ubuntu's
+      own background `apt-check` process stuck in an unkillable D-state, and
+      second - the actual root cause of most of the delay - via retrying the
+      playbook without checking a previous run had exited, leaving two
+      `ansible-playbook` processes fighting over the same lock. Still to do:
+      actually run `failover-demo.sh break`/`restore` and watch the switch
+      live across browser, Uptime Kuma, and CLI → **Requirement 5 done**
+      once that's confirmed
 - [x] ArgoCD: installed on West Europe, manages both clusters from there,
       Application per region pointing at its Kustomize overlay (cherry #1) -
       **live and verified**: both Applications show `Synced`/`Healthy`,
       Hello World actually running on both clusters, deployed entirely by
       `git push` rather than `kubectl apply`.
-- [ ] GCP: Terraform for 1 Always-Free VM, same Ansible `common` +
-      `k3s-server` roles, single-node K3s (cherry #2)
-- [ ] Uptime Kuma: **built and demoed live, not just described** - Denis
-      wants to actually show Requirement 6 happening on screen (an HTTP
-      monitor per region + the proxy, turning red then green live during
-      the Requirement 5 failover demo), not only hand over
-      `monitoring-concept.md`. The concept doc still gets written - it's
-      what explains the production-scale answer beyond what one small pod
-      can show - but Uptime Kuma itself is core work now, not a bonus.
+- [x] GCP: **live and verified** - `kubectl --context gcp-showcase get
+      nodes` shows one `Ready` node, reached directly from the laptop,
+      same as both Azure clusters (cherry #2 done). Real incident along
+      the way: the Always Free tier's disk (standard/HDD, the only option
+      it covers) caused severe I/O wait (91.8%) that made K3s's own
+      internal database time out against itself - fixed by disabling
+      Traefik and ServiceLB on this node specifically, since this showcase
+      never runs anything that needs either. This same VM now also runs the
+      standalone NGINX proxy for Requirement 5, as its own process alongside
+      K3s - see the proxy line above.
+- [x] Uptime Kuma: **live and verified** - deployed via ArgoCD, both
+      regions' real HTTPS endpoints monitored (West Europe, Germany West
+      Central), TLS errors correctly ignored (self-signed certs), interval
+      and timeout tuned down for a snappier live demo. A third monitor for
+      the proxy's own address still to add once the proxy exists. The
+      written `monitoring-concept.md` doc still to write.
 - [ ] Written concept docs: `docs/monitoring-concept.md` (Req 6, also
       mentions ArgoCD's Healthy/Degraded status as a second monitoring
       signal alongside Uptime Kuma), `docs/backup-recovery-concept.md`
@@ -147,7 +167,15 @@ sufficient — no further tightening planned.
 - [ ] GitHub Actions CI (`tflint` → `checkov` → `helm lint`) - deliberately
       last, since it checks code that needs to already be finished and
       stable for the checks to mean anything
-- [ ] Architecture diagram, presentation script, timed rehearsal
+- [ ] Architecture diagram, presentation script, timed rehearsal - rehearsal
+      needs to specifically include a live run-through of the actual build
+      sequence (Terraform creating the servers, Ansible configuring them),
+      not just the finished result - and specifically the moment certain
+      commands cause new files to appear on disk (kubeconfig files fetched
+      by the k3s-server role, merged-kubeconfig.yaml from the merge
+      script) so Denis can explain *why* each file exists and what created
+      it if a panel member asks, rather than being caught off guard by his
+      own file tree mid-demo.
 - [x] `cli-output-recap-reminder.md` - a field-by-field reference for the
       recurring terminal output (Ansible's PLAY RECAP, Terraform's plan
       symbols, kubectl's columns) shown across every screenshot. Read this

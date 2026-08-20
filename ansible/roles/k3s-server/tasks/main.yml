@@ -16,7 +16,7 @@
   # of wrongly skipping it.
 
 - name: Install K3s in server mode
-  shell: curl -sfL https://get.k3s.io | sh -s - --tls-san {{ ansible_host }}
+  shell: curl -sfL https://get.k3s.io | sh -s - --tls-san {{ ansible_host }} {{ k3s_server_extra_args | default('') }}
   when: >
     'k3s.service' not in ansible_facts.services or
     ansible_facts.services['k3s.service'].state != 'running'
@@ -36,6 +36,14 @@
   # valid for 10.0.1.5 ... not 52.236.138.44" error this fixes. ansible_host
   # is already this machine's public IP, straight from the inventory file,
   # so no new variable is needed to supply it.
+  #
+  # k3s_server_extra_args is empty by default (both Azure servers use it,
+  # since Hello World genuinely needs Traefik's ingress and HPA/ServiceLB
+  # there) - the GCP showcase overrides it in hosts.yml specifically,
+  # disabling components it doesn't run anything that needs, since that
+  # VM's disk (the Always Free tier's only option - standard/HDD, not SSD)
+  # is slow enough that every extra controller constantly reconciling
+  # against K3s's own datastore genuinely matters.
 
 - name: Wait for K3s to finish starting and write out its node-token
   wait_for:

@@ -23,11 +23,13 @@ cd "$(dirname "$0")/.."
 # obviously wrong if these ever change.
 WEST_KUBECONFIG="ansible/kubeconfig-west-eu-server.yaml"
 GERMANY_KUBECONFIG="ansible/kubeconfig-germany-west-server.yaml"
+GCP_KUBECONFIG="ansible/kubeconfig-gcp-showcase.yaml"
 WEST_IP="52.236.138.44"
 GERMANY_IP="20.52.138.69"
+GCP_IP="136.115.185.153"
 MERGED_KUBECONFIG="merged-kubeconfig.yaml"
 
-if [ ! -f "${WEST_KUBECONFIG}" ] || [ ! -f "${GERMANY_KUBECONFIG}" ]; then
+if [ ! -f "${WEST_KUBECONFIG}" ] || [ ! -f "${GERMANY_KUBECONFIG}" ] || [ ! -f "${GCP_KUBECONFIG}" ]; then
   echo "Missing a kubeconfig file - run the Ansible playbook first." >&2
   exit 1
 fi
@@ -42,13 +44,23 @@ sed -e "s/127.0.0.1/${GERMANY_IP}/" \
     -e "s/default/azure-germany-west/g" \
     "${GERMANY_KUBECONFIG}" > /tmp/kubeconfig-germany-west.yaml
 
+# Same rewrite, same reasoning - GCP's own K3s install wrote its kubeconfig
+# with the exact same "only ever read from the server itself" assumption
+# Azure's did. This is also the proof point of the whole GCP showcase: the
+# same script, unmodified, works identically here even though the cluster
+# underneath it is on a completely different cloud provider.
+echo "==> Preparing the GCP showcase kubeconfig..."
+sed -e "s/127.0.0.1/${GCP_IP}/" \
+    -e "s/default/gcp-showcase/g" \
+    "${GCP_KUBECONFIG}" > /tmp/kubeconfig-gcp-showcase.yaml
+
 # kubectl already knows how to merge multiple kubeconfig files - it just
 # needs to be told about more than one at once, through the KUBECONFIG
 # environment variable (a colon-separated list, the same idea as PATH).
 # "--flatten" is what actually writes out one real, combined file, instead
 # of kubectl only merging them freshly in memory each time it happens to run.
-echo "==> Merging both into one kubeconfig..."
-KUBECONFIG=/tmp/kubeconfig-west-eu.yaml:/tmp/kubeconfig-germany-west.yaml \
+echo "==> Merging all three into one kubeconfig..."
+KUBECONFIG=/tmp/kubeconfig-west-eu.yaml:/tmp/kubeconfig-germany-west.yaml:/tmp/kubeconfig-gcp-showcase.yaml \
   kubectl config view --flatten > "${MERGED_KUBECONFIG}"
 
 # kubectl doesn't always use ~/.kube/config - if a KUBECONFIG environment
@@ -69,9 +81,10 @@ fi
 mkdir -p "$(dirname "${KUBECONFIG_TARGET}")"
 cp "${MERGED_KUBECONFIG}" "${KUBECONFIG_TARGET}"
 echo "==> Written to ${KUBECONFIG_TARGET}"
-rm -f /tmp/kubeconfig-west-eu.yaml /tmp/kubeconfig-germany-west.yaml
+rm -f /tmp/kubeconfig-west-eu.yaml /tmp/kubeconfig-germany-west.yaml /tmp/kubeconfig-gcp-showcase.yaml
 
 echo ""
-echo "Done. Two contexts are now available:"
+echo "Done. Three contexts are now available:"
 echo "  kubectl --context azure-west get nodes"
 echo "  kubectl --context azure-germany-west get nodes"
+echo "  kubectl --context gcp-showcase get nodes"

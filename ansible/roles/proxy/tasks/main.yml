@@ -1,0 +1,89 @@
+---
+# This role turns the GCP showcase VM into Requirement 5's actual traffic
+# router - installed as a plain, native process (not a container, not a
+# Kubernetes workload), deliberately independent of the K3s cluster
+# running alongside it on this same machine. If that K3s cluster ever has
+# problems, this proxy keeps routing traffic between the two Azure regions
+# completely unaffected, and vice versa.
+
+- name: Stop Ubuntu's own background update-checking timers
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - apt-daily.service
+    - apt-daily-upgrade.service
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - motd-news.timer
+    - motd-news.service
+  ignore_errors: true
+  # Discovered live: this VM's disk (standard/HDD - the only option the
+  # Always Free tier covers) is slow enough that Ubuntu's own built-in
+  # "check for available updates" background task can itself hang for
+  # tens of minutes, blocking any other apt command that needs the same
+  # package-manager lock - including this role's own "Install NGINX" step
+  # below.
+
+- name: Make the actual apt-check program impossible to run, however it gets triggered
+  file:
+    path: /usr/lib/update-notifier/apt-check
+    mode: "0000"
+  ignore_errors: true
+  # Masking the timers above turned out not to be enough on its own - the
+  # same hang recurred even with every known systemd trigger disabled,
+  # meaning something else (most likely a login-banner script, possibly
+  # cloud-init running something on every boot) was still calling this
+  # program directly. Rather than keep hunting for the exact remaining
+  # trigger, this removes every permission from the program itself - if
+  # nothing can execute it at all, it no longer matters what tries to.
+
+- name: Install NGINX
+  apt:
+    name: nginx
+    state: present
+    update_cache: true
+
+- name: Create a directory for the proxy's own TLS certificate
+  file:
+    path: /etc/nginx/ssl
+    state: directory
+    mode: "0700"
+
+- name: Check whether the proxy's self-signed certificate already exists
+  stat:
+    path: /etc/nginx/ssl/proxy-selfsigned.crt
+  register: proxy_cert
+
+- name: Generate a self-signed certificate for the proxy itself
+  command: >
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048
+    -keyout /etc/nginx/ssl/proxy-selfsigned.key
+    -out /etc/nginx/ssl/proxy-selfsigned.crt
+    -subj "/CN={{ ansible_host }}"
+  when: not proxy_cert.stat.exists
+  # Same idea as cert-manager's SelfSigned ClusterIssuer inside the K3s
+  # clusters - free, no domain needed, and explicitly acceptable per
+  # Requirement 4's own wording. This isn't Requirement 4 itself (each
+  # region's own ingress already satisfies that), but it keeps the whole
+  # demo consistent - HTTPS end to end, not HTTPS for two regions and then
+  # plain HTTP at the one address that actually fronts them.
+  #
+  # "not proxy_cert.stat.exists" makes this idempotent by hand, the same
+  # reasoning as the service_facts checks in the k3s roles: without it,
+  # re-running the playbook would generate a brand-new certificate every
+  # time, needlessly invalidating whatever a browser had already trusted.
+
+- name: Deploy the actual proxy configuration
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+  notify: Reload NGINX
+
+- name: Make sure NGINX is enabled and running
+  systemd:
+    name: nginx
+    enabled: true
+    state: started

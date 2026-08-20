@@ -21,3 +21,9 @@
   become: true
   roles:
     - k3s-agent
+
+- name: Install Requirement 5's traffic router
+  hosts: proxy_servers
+  become: true
+  roles:
+    - proxy

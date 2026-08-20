@@ -242,3 +242,64 @@ vmss-west-eu000005   Ready    <none>          76s   v1.36.3+k3s1
   healthy.
 - **VERSION** should match across every node - a mismatch would mean
   nodes were installed at different times with different versions.
+
+## 5. Files that appear on disk during the demo, not just terminal output
+
+Running the actual commands doesn't just print things - it leaves real
+files behind in the project folder, visible in VS Code's file explorer or
+a plain `ls`. None of these are hand-written; they're every one of them a
+side effect of a command that already ran. Worth knowing what each one is
+and why it looks the way it does, in case a panel member points at the
+file tree mid-demo and asks - that shouldn't be a moment spent
+reconstructing the answer live.
+
+**`ansible/kubeconfig-<hostname>.yaml`** (one per server: `west-eu-server`,
+`germany-west-server`, `gcp-showcase`)
+Created by: the `k3s-server` Ansible role's last step, which copies K3s's
+own generated kubeconfig down to this laptop.
+Why it looks the way it does: K3s writes this file assuming it will only
+ever be read *from the server itself* - so it points at `127.0.0.1`, and
+names the cluster, context, and user all `default`, because from the
+server's own point of view there's only ever one of each.
+Why it's not in the repo: this is a live, working credential - the actual
+client certificate and private key needed to fully administer that
+specific cluster. Committing it would hand out real access to whoever
+found it. (This is also the exact mistake caught and fixed early in the
+build - see README's incident on it.)
+
+**`merged-kubeconfig.yaml`** (project root)
+Created by: `scripts/kubeconfig-merge.sh`, right before it copies the
+result to wherever `kubectl` actually reads from.
+Why it looks the way it does: this is the three raw per-server kubeconfigs
+above, rewritten (each `127.0.0.1` replaced with that server's real public
+IP, each `default` renamed to a region-specific context name) and merged
+into one file with three named, switchable contexts.
+Why it's not in the repo: same reason as the files above - still real
+credentials, just combined into one file instead of three.
+
+**`~/.kube/config` (or wherever `$KUBECONFIG` points)**
+Created by: the last step of `kubeconfig-merge.sh`, and it's not inside
+this project folder at all - it's the actual file `kubectl` itself reads
+by default, system-wide, for every project on this machine, not just this
+one.
+Why there might be `.bak-<timestamp>` copies sitting next to it: the merge
+script backs up whatever was already there before overwriting it, every
+single time it runs - deliberately, so a first run on a machine that
+already had other clusters configured doesn't silently destroy that
+configuration. These backups are safe to ignore, or delete, at any time.
+
+**`terraform/azure/.terraform/` and `terraform/gcp/.terraform/`**
+Created by: `terraform init`.
+What it is: the downloaded provider plugin itself (the actual code that
+knows how to talk to Azure's or GCP's API) - large (the Azure one alone is
+over 200MB), entirely regenerable by re-running `init`, and not something
+any two people working on this project would even want to keep in sync
+manually.
+
+**`terraform/azure/backend-config.hcl`**
+Created by: `scripts/bootstrap-tfstate.sh`, once, the very first time this
+project's remote state storage was set up.
+Why it's not in the repo: it holds the real storage account name Terraform
+state lives in - specific to this exact Azure subscription, not something
+that would even work if copied into a different one, and not something
+that needs to be secret so much as pointless to share.

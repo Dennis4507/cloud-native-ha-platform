@@ -1,0 +1,9 @@
+---
+- name: Reload NGINX
+  systemd:
+    name: nginx
+    state: reloaded
+  # A handler, not a regular task - it only actually runs if the config
+  # template task above genuinely changed something. Reload rather than
+  # restart: NGINX re-reads its config and swaps it in without dropping
+  # any connection that's already in progress.
