@@ -643,6 +643,84 @@ showcase, described below) - the one piece of infrastructure in this
 project that's genuinely outside both Azure regions and doesn't depend on
 any one laptop staying switched on.
 
+**A known limitation, worth stating rather than hiding:** NGINX's health
+check on the backup server (Germany West Central) is *passive* - it only
+learns a server is down by watching real requests to it fail, and a backup
+server receives zero real requests while the primary is healthy. So if
+Germany West Central failed at the same moment West Europe did, the proxy
+wouldn't discover that until the exact moment it tried to fail over to it -
+too late to matter. Open-source NGINX has no built-in active check (probing
+an upstream on a timer, independent of real traffic); that's an NGINX Plus,
+paid, feature. Two ways to close this gap without paying for NGINX Plus:
+either a small script polling both regions (or Uptime Kuma's own API, since
+Kuma is already tracking this) on a timer and regenerating `nginx.conf` if
+something changes, or dropping the reverse-proxy model entirely in favor of
+a DNS-based GSLB (Global Server Load Balancer) like Traffic Manager - active
+probing of every endpoint, backups included, is one of that model's real
+architectural advantages, separate from the pricing already ruled it out
+above. Not built here, on purpose - see the appendix in `CLAUDE.md` for why
+extra live moving parts were deliberately kept out of the 4-day scope.
+
+### Requirement 5, finished: the live failover demo
+
+With the proxy built and a third Uptime Kuma monitor added for its own
+address (`https://136.115.185.153/`), the actual demo - breaking West
+Europe and watching the platform recover on its own, live, from three
+independent vantage points at once - was run for real.
+
+![Baseline: all three monitors green before anything is touched](docs/screenshots/70-kuma-baseline-three-monitors-green.png)
+*Uptime Kuma watching all three addresses independently: West Europe and
+Germany West Central directly, plus the proxy's own address as a fourth,
+separate signal.*
+
+![Baseline: the browser hitting the proxy shows West Europe](docs/screenshots/71-browser-baseline-west-europe.png)
+*The starting point everything else below gets compared against.*
+
+`scripts/failover-demo.sh break` hit a real Azure constraint on the first
+attempt: NSG (Network Security Group) rule priorities have to fall between
+100 and 4096, and the script's original value of 90 was rejected outright.
+Fixed by moving it to 105 - still below `AllowHTTPFromAnywhere`'s own 120,
+so it's still evaluated first under NSG's first-match-wins ordering, just
+inside the range Azure actually accepts.
+
+![The priority-90 rejection, then the fix confirmed working](docs/screenshots/72-break-command-priority-fix-confirmed.png)
+*Left in, on purpose, rather than cropped out - a wrong flag value caught
+and fixed against a real API response is a more honest demonstration than
+a script that only ever ran once.*
+
+![Uptime Kuma independently catching West Europe going down](docs/screenshots/73-kuma-west-europe-down-alert.png)
+*"[Azure West Europe] [DOWN] timeout of 4700ms exceeded" - this monitor
+hits West Europe directly, not through the proxy, so it has no way of
+knowing the proxy even exists. It failed on its own, for the same real
+reason.*
+
+![The CLI loop's live transition, mid-run](docs/screenshots/74-cli-loop-live-transition-to-germany.png)
+*The repeating `curl` loop's output, uncut - a long run of "Azure West
+Europe," then a clean, permanent switch to "Azure Germany West Central"
+the moment NGINX's passive health check (`max_fails=2`) tripped.*
+
+![The browser, refreshed, now showing the backup region](docs/screenshots/75-browser-failed-over-germany-west-central.png)
+*Same address, `https://136.115.185.153/`, same page structure, different
+region - exactly what "the user experienced nothing, the platform rerouted
+itself" looks like on screen.*
+
+`scripts/failover-demo.sh restore` removed the NSG rule, and the same
+three signals recovered on their own, in reverse, with no manual step
+telling the proxy to switch back:
+
+![The CLI loop transitioning back once West Europe answers again](docs/screenshots/76-cli-loop-live-transition-back-to-west-europe.png)
+*NGINX's `fail_timeout=10s` window expired, it tried West Europe again on
+its own schedule, got a real answer, and started sending traffic back -
+nothing was ever manually pointed back at West Europe.*
+
+![The browser confirming the rejoin](docs/screenshots/77-browser-restored-west-europe.png)
+*Back to the baseline state, closing the loop.*
+
+**Requirement 5 done** - a genuinely simulated regional failure, detected
+and routed around automatically, watched live across a browser, an
+independent monitoring dashboard, and a raw CLI loop, with the recovery
+back to normal just as automatic as the failover itself.
+
 ### Requirement 3, finished: the live autoscaling demo
 
 The HPA (HorizontalPodAutoscaler - the Kubernetes controller that adds or
@@ -943,9 +1021,9 @@ and verified.
       - HPA scale-up half done live; round-robin `curl` proof still
       outstanding
 - [x] The self-hosted NGINX proxy built and verified, serving West Europe
-      through it over HTTPS (above) - the traffic router itself is live;
-      the failover switch is the next thing to demonstrate
-- [ ] Traffic automatically switching to the second region during a simulated failure
+      through it over HTTPS (above)
+- [x] Traffic automatically switching to the second region during a
+      simulated failure (above) - **Requirement 5 done**
 - [x] The GitOps dashboard showing both clusters in sync (above)
 - [x] The Google Cloud server, built with the same automation (above)
 - [ ] A real DNS troubleshooting session on a server

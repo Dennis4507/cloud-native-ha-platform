@@ -28,12 +28,15 @@ case "${1:-}" in
     echo "==> Blocking port 80 to West Europe from anywhere..."
     # A lower priority number than AllowHTTPFromAnywhere's own 120 means
     # this rule is evaluated first - NSG rules are first-match-wins, so
-    # this one Deny overrides the broader Allow underneath it.
+    # this one Deny overrides the broader Allow underneath it. Azure only
+    # accepts priorities from 100-4096 (nothing lower), and 105 sits below
+    # 120 without colliding with the other rules already using 100, 110,
+    # 115, and 117 - see terraform/azure/main.tf for the full set.
     az network nsg rule create \
       --resource-group "${RESOURCE_GROUP}" \
       --nsg-name "${NSG_NAME}" \
       --name "${RULE_NAME}" \
-      --priority 90 \
+      --priority 105 \
       --direction Inbound \
       --access Deny \
       --protocol Tcp \

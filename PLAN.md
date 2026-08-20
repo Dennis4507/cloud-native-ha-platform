@@ -127,10 +127,11 @@ sufficient — no further tightening planned.
       own background `apt-check` process stuck in an unkillable D-state, and
       second - the actual root cause of most of the delay - via retrying the
       playbook without checking a previous run had exited, leaving two
-      `ansible-playbook` processes fighting over the same lock. Still to do:
-      actually run `failover-demo.sh break`/`restore` and watch the switch
-      live across browser, Uptime Kuma, and CLI → **Requirement 5 done**
-      once that's confirmed
+      `ansible-playbook` processes fighting over the same lock.
+      `failover-demo.sh break`/`restore` both run for real, watched live
+      across browser, Uptime Kuma, and CLI simultaneously - real incident
+      caught mid-demo too: the script's NSG rule priority (90) was below
+      Azure's allowed 100-4096 range, fixed to 105 → **Requirement 5 done**
 - [x] ArgoCD: installed on West Europe, manages both clusters from there,
       Application per region pointing at its Kustomize overlay (cherry #1) -
       **live and verified**: both Applications show `Synced`/`Healthy`,
@@ -149,9 +150,10 @@ sufficient — no further tightening planned.
 - [x] Uptime Kuma: **live and verified** - deployed via ArgoCD, both
       regions' real HTTPS endpoints monitored (West Europe, Germany West
       Central), TLS errors correctly ignored (self-signed certs), interval
-      and timeout tuned down for a snappier live demo. A third monitor for
-      the proxy's own address still to add once the proxy exists. The
-      written `monitoring-concept.md` doc still to write.
+      and timeout tuned down for a snappier live demo. A third monitor now
+      also watches the proxy's own address (`(GCP) Failover Proxy`),
+      independent of the two direct region monitors. The written
+      `monitoring-concept.md` doc still to write.
 - [ ] Written concept docs: `docs/monitoring-concept.md` (Req 6, also
       mentions ArgoCD's Healthy/Degraded status as a second monitoring
       signal alongside Uptime Kuma), `docs/backup-recovery-concept.md`
