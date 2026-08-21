@@ -8,6 +8,8 @@
 > What follows is that answer, backed by a live, working, lightweight
 > version of it, and a comparison against what a larger production system
 > would add on top.
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-6)
 
 ## What "the relevant service endpoints" actually are here
 

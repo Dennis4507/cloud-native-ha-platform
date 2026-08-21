@@ -1,11 +1,14 @@
 # Backup & recovery concept — Requirement 7
 
-> CGI's brief asks: *"Describe in broad strokes how you would handle
-> recovery of your solution with two targets in mind: zero downtime, and a
-> maximum MTTR (Mean Time To Recovery - the average time between something
-> breaking and it being fixed) of 4 hours."* This is a description
-> requirement, like Requirement 6 - a clear, well-reasoned answer earns
-> full credit without a disaster-recovery drill actually being run live.
+> CGI's brief asks: *"Describe in broad strokes how you handle a scenario
+> with two options. Zero-down time and a maximum MTTR (Mean Time To
+> Recovery - the average time between something breaking and it being
+> fixed) of 4 hours."* The two options are zero downtime and a ≤4-hour
+> MTTR. This is a description requirement, like Requirement 6 - a clear,
+> well-reasoned answer earns full credit without a disaster-recovery drill
+> actually being run live.
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-7)
 
 ## What actually needs backing up here
 

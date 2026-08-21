@@ -4,6 +4,8 @@
 > traffic being distributed to the instances according to the round-robin
 > principle. The container instances scale automatically based on the CPU
 > load."*
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-3)
 
 **In short:** two things proven together, live, in one continuous run —
 the app scales automatically from 2 to 6 pods under real load (`k6` +

@@ -3,6 +3,8 @@
 > CGI's brief: *"The container should be served via an ingress-controller
 > that terminates TLS and returns a valid certificate (self-signed or
 > signed by public CA)."*
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-4)
 
 **In short:** Traefik (built into K3s) terminates HTTPS, cert-manager
 issues a self-signed certificate automatically — explicitly allowed by
@@ -33,12 +35,14 @@ the brief's own wording. Live and verified in a browser on both regions.
 
 ## Incidents along the way
 
-**⚠️ The certificate looked right in every status check — and was
-wrong.**
-ArgoCD reported `Healthy`. The `Certificate` object existed and was
-marked ready. But checking the actual browser told a different story:
-the certificate presented was Traefik's own generic built-in one, not
-the real certificate cert-manager had issued.
+**⚠️ Every command-line check said the certificate was fine. It wasn't.**
+`kubectl get certificate` showed the object as `Ready`, and ArgoCD's own
+dashboard marked the whole application `Healthy` — both checks were only
+confirming that cert-manager had successfully *issued* a certificate
+somewhere, not which certificate the browser would actually receive. I
+only found the mismatch by opening the site itself: the certificate the
+browser presented (screenshot below) was Traefik's own generic built-in
+one, not the real certificate cert-manager had issued.
 
 ![The wrong certificate - Traefik's generic default, not the real one](docs/screenshots/42-traefik-default-cert-bug.png)
 *"TRAEFIK DEFAULT CERT" — technically a certificate, just not the one

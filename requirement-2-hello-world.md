@@ -4,6 +4,8 @@
 > deployed to the cluster. The webserver should be accessible through the
 > challengers' browsers and display a simple webpage with a 'Hello World'
 > message."*
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-2)
 
 **In short:** a plain NGINX web server, deployed to both clusters through
 GitOps — pushing to Git is the deploy, nobody runs `kubectl apply` by

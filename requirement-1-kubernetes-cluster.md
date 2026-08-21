@@ -5,6 +5,8 @@
 > playbook should be used. The local machine of the challenge participant
 > should be able to connect to the cluster using kubectl, and 'kubectl get
 > nodes' should return at least two nodes with the status 'Ready.'"*
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-1)
 
 **In short:** two independent Kubernetes clusters, one per Azure region,
 built entirely through Terraform and Ansible — no manual clicking.
@@ -44,14 +46,16 @@ Two separate decisions, easy to blur together, so worth stating
 separately and precisely.
 
 **Why not AKS (Azure Kubernetes Service, Azure's managed Kubernetes)
-instead of self-managed K3s?** The real reason: **Requirement 8 needs
-direct, low-level access to a node** — a shell where I can run `tcpdump`
-and inspect `iptables` rules directly. AKS deliberately keeps its worker
-nodes off the public internet with no SSH access by default; the
-supported way in is `kubectl debug node`, a temporary debug pod, not a
-direct shell. Self-managed K3s on a plain VM gives that access directly,
-with a normal SSH key, which is what the debugging requirement actually
-needs.
+instead of self-managed K3s?** The real reason: **Requirement 8 was
+planned as a live demo** — actually running `tcpdump` and inspecting
+`iptables` rules on a real node in front of the panel, not just
+describing the method. AKS worker nodes don't get a public IP by
+default, so there's no direct network path to SSH into one — reaching it
+normally needs a bastion host, a VPN, or Microsoft's own `kubectl debug
+node` command (a temporary debug pod, not a direct shell), instead of a
+plain SSH session. Self-managed K3s on a plain VM gives that access
+directly, with a normal SSH key and no extra infrastructure to set up
+mid-demo.
 
 **Why not Azure Traffic Manager for multi-region traffic routing
 (Requirement 5), instead of a self-hosted proxy?** Simply **cost**.

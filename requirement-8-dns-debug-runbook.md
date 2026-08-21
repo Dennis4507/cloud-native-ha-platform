@@ -5,6 +5,8 @@
 > the network packets on the node. Explain why you have chosen this
 > method."* Like Requirements 6 and 7, this asks for a description — a
 > clear, well-reasoned methodology earns full credit.
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-8)
 
 ## The mental model
 

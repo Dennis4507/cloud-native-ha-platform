@@ -4,6 +4,8 @@
 > on a multi-region approach. Traffic routing should be simulated with a
 > proxy-server as loadbalancer or with a PaaS cloud-native service. Deploy
 > the scenario the same way as part 1 of the challenge."*
+>
+> [Verify against the full brief →](CGI-Challenge-Brief.md#requirement-5)
 
 **In short:** a second, independent cluster in Germany West Central,
 built the same way as the first, with a self-hosted NGINX proxy routing
