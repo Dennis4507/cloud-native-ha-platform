@@ -30,8 +30,8 @@ OUT = os.path.dirname(os.path.abspath(__file__))
 NODE_ATTR = {
     "fontsize": "14",
     "fontname": "Helvetica-Bold",
-    "width": "2.3",
-    "height": "3.6",
+    "width": "2.1",
+    "height": "2.5",
     "fixedsize": "false",
     "labelloc": "b",
     "imagepos": "tc",
@@ -46,8 +46,8 @@ GRAPH_ATTR = {
     "fontname": "Helvetica-Bold",
     "bgcolor": "white",
     "pad": "1.0",
-    "nodesep": "1.3",
-    "ranksep": "2.4",
+    "nodesep": "1.0",
+    "ranksep": "1.2",
     "splines": "spline",
     "dpi": "220",
 }
