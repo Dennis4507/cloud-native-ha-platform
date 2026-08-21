@@ -32,6 +32,7 @@ merged-kubeconfig.yaml
 # has nothing to do with the actual deliverable.
 /PLAN.md
 /CLAUDE.md
+/how-the-build-works.md
 
 # OS noise
 .DS_Store
