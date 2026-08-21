@@ -49,29 +49,6 @@ flowchart LR
     TFGCP -->|provisions| OUT2["GCP VM: showcase node, also hosts the failover proxy"]
 ```
 
-<details>
-<summary><strong>Step detail: terraform apply, terraform/gcp/</strong> (click to expand)</summary>
-
-**Command, run from `terraform/gcp/`:**
-```bash
-terraform apply
-```
-Uses the same remote state backend as the Azure side, just a different
-`key` (the filename within that same storage account), so no separate
-GCP-native backend was needed for one small VM.
-
-**What it provisions (8 resources):**
-- A dedicated VPC network and firewall rules (SSH, HTTP, the K3s API port)
-- A service account with Workload Identity, no downloaded key file
-- A static public IP
-- The `e2-micro` VM itself, in a genuinely Always Free region
-
-**The real IP this step produces:** `136.115.185.153`. That's the
-address `ansible/inventory/hosts.yml` records next, and the same
-address the failover proxy answers on later in Phase 2.
-
-</details>
-
 **Phase 2: installing Kubernetes**
 
 ```mermaid
