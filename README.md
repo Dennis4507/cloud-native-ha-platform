@@ -31,22 +31,36 @@ shown as planned, not yet built.*
 ## The build pipeline: scaffold and commands together
 
 The diagram above shows what talks to what while the platform is
-*running*. The four below show how it gets *built*: which command
-triggers which real file, and what that command hands off to the next
-one. Split into phases, in build order, each one flowing left to right,
-rather than one long chain, so no single diagram outgrows the page.
+*running*. The four below show how it gets *built*: which file feeds
+which command, and what that command actually produces. Every diagram
+uses the same three shapes for the same three kinds of thing, and the
+same three arrow meanings, so once you've read the key once, every
+diagram after it reads the same way.
+
+**The key, used in every diagram below:**
+
+```mermaid
+flowchart LR
+    L1[["A file already in the repo"]] -->|defines| L2(["A command I actually run"])
+    L2 -->|produces| L3["What that command makes true"]
+```
+
+A file *defines* what a command does. A command *produces* a result.
+One more arrow meaning shows up where a command needs something from an
+earlier step to already exist before it can run, labeled `required
+first` wherever that happens.
 
 **Phase 1: provisioning the infrastructure**
 
 ```mermaid
 flowchart LR
-    CMD0["Bash script: bootstrap-tfstate.sh"] --> OUT0["Creates remote state storage in Azure"]
-    OUT0 --> CMD1["Terraform apply: terraform/azure/"]
-    CMD1 --> TFAZ["Defines resources in main.tf, outputs.tf"]
-    TFAZ --> OUT1["Provisions 2 VMSS and Load Balancers, both regions"]
-    OUT0 --> CMD2["Terraform apply: terraform/gcp/"]
-    CMD2 --> TFGCP["Defines resources in main.tf"]
-    TFGCP --> OUT2["Provisions the GCP VM: showcase node, also hosts the failover proxy"]
+    CMD0(["Run: bootstrap-tfstate.sh"]) -->|produces| OUT0["Remote state storage now exists in Azure"]
+    TFAZ[["terraform/azure/main.tf, outputs.tf"]] -->|defines| CMD1(["Run: terraform apply"])
+    OUT0 -->|required first| CMD1
+    CMD1 -->|produces| OUT1["2 VMSS and Load Balancers now provisioned, both regions"]
+    TFGCP[["terraform/gcp/main.tf"]] -->|defines| CMD2(["Run: terraform apply"])
+    OUT0 -->|required first| CMD2
+    CMD2 -->|produces| OUT2["GCP VM now provisioned: showcase node, also hosts the failover proxy"]
 ```
 
 **Phase 2: installing Kubernetes**
