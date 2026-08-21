@@ -17,10 +17,9 @@ automation pattern applied to a Google Cloud server, and a GitOps pipeline
 so deployments happen by pushing to Git, not running commands by hand.
 
 ![Full architecture diagram - GitHub as source of truth, ArgoCD managing both Azure regions, the GCP node running K3s and the failover proxy](docs/architecture.png)
-*Generated with Python's `diagrams` library. Green arrows are GitOps (ArgoCD
-pulling from Git); blue is real traffic; dashed brown is one-time
-infrastructure provisioning. GitHub Actions is shown as planned, not yet
-built - see the CI section below.*
+*Green arrows are GitOps (ArgoCD pulling from Git); blue is real traffic;
+dashed brown is one-time infrastructure provisioning. GitHub Actions is
+shown as planned, not yet built - see the CI section below.*
 
 ## The build pipeline — scaffold and commands together
 
@@ -30,73 +29,49 @@ which real file, and what that command hands off to the next stage.
 
 ```mermaid
 flowchart TD
-    subgraph BOOT["scripts/"]
-        B1[bootstrap-tfstate.sh]
-        B2[kubeconfig-merge.sh]
-        B3[load-test.js]
-        B4[failover-demo.sh]
-    end
-    subgraph TFAZ["terraform/azure/"]
-        TFAZ1[main.tf]
-        TFAZ2[outputs.tf]
-    end
-    subgraph TFGCP["terraform/gcp/"]
-        TFGCP1[main.tf]
-    end
-    subgraph ANS["ansible/"]
-        A1[inventory/hosts.yml]
-        A2[playbook.yml]
-        A3["roles: common → k3s-server → k3s-agent → proxy"]
-    end
-    subgraph K8S["k8s/"]
-        K1[argocd/application-*.yaml]
-        K2["apps/hello-world/base + overlays"]
-        K3[apps/monitoring/uptime-kuma.yaml]
-    end
+    CMD0["bash scripts/bootstrap-tfstate.sh"] --> OUT0["Remote state storage created in Azure"]
 
-    CMD0(["bash bootstrap-tfstate.sh"]) --> B1 --> OUT0[Remote state storage created in Azure]
+    OUT0 --> CMD1["terraform apply, terraform/azure/"]
+    CMD1 --> TFAZ["main.tf, outputs.tf"]
+    TFAZ --> OUT1["2 VMSS and Load Balancers, both regions"]
 
-    OUT0 --> CMD1(["terraform apply — azure/"])
-    CMD1 --> TFAZ1 --> TFAZ2
-    TFAZ2 -->|"public IPs"| OUT1[2 VMSS + Load Balancers, both regions]
+    OUT0 --> CMD2["terraform apply, terraform/gcp/"]
+    CMD2 --> TFGCP["main.tf"]
+    TFGCP --> OUT2["GCP showcase VM"]
 
-    OUT0 --> CMD2(["terraform apply — gcp/"])
-    CMD2 --> TFGCP1 --> OUT2[GCP showcase VM]
-
-    OUT1 --> A1
+    OUT1 --> A1["ansible/inventory/hosts.yml"]
     OUT2 --> A1
-    CMD3(["ansible-playbook"]) --> A2 --> A3
-    A1 -.->|"IPs feed the inventory"| A2
-    A3 --> OUT3["K3s installed + joined, cert-manager + NGINX proxy installed"]
+    CMD3["ansible-playbook"] --> A2["ansible/playbook.yml"]
+    A1 --> A2
+    A2 --> A3["roles: common, k3s-server, k3s-agent, proxy"]
+    A3 --> OUT3["K3s installed and joined; cert-manager and NGINX proxy installed"]
 
-    OUT3 --> CMD3b(["bash kubeconfig-merge.sh"])
-    CMD3b --> B2 --> OUT3b["kubectl actually reachable from my laptop"]
+    OUT3 --> CMD3b["bash scripts/kubeconfig-merge.sh"]
+    CMD3b --> OUT3b["kubectl reachable from my laptop"]
 
-    OUT3b --> CMD4(["kubectl apply -f k8s/argocd/"])
-    CMD4 --> K1 --> OUT4[ArgoCD watching this repo]
+    OUT3b --> CMD4["kubectl apply, k8s/argocd/"]
+    CMD4 --> K1["ArgoCD Application manifests"]
+    K1 --> OUT4["ArgoCD watching this repo"]
 
-    CMD5(["git push"]) --> K2
-    CMD5 --> K3
-    OUT4 -.->|"polls the repo"| K2
-    OUT4 -.->|"polls the repo"| K3
-    K2 --> OUT5[Hello World live, both regions]
-    K3 --> OUT5b[Uptime Kuma watching both regions + the proxy]
+    CMD5["git push"] --> K2["k8s/apps/hello-world/"]
+    CMD5 --> K3["k8s/apps/monitoring/"]
+    OUT4 --> K2
+    OUT4 --> K3
+    K2 --> OUT5["Hello World live, both regions"]
+    K3 --> OUT5b["Uptime Kuma watching both regions and the proxy"]
 
-    OUT5 --> CMD6a(["k6 run load-test.js"])
-    CMD6a --> B3 --> OUT6a["HPA scales 2 → 6 pods live"]
+    OUT5 --> CMD6a["k6 run scripts/load-test.js"]
+    CMD6a --> OUT6a["HPA scales 2 to 6 pods live"]
 
-    OUT5 --> CMD6b(["bash failover-demo.sh break"])
-    CMD6b --> B4 --> OUT6b[NSG rule blocks West Europe]
-    OUT6b --> OUT7["NGINX proxy's health check fails → routes to Germany West Central"]
+    OUT5 --> CMD6b["bash scripts/failover-demo.sh break"]
+    CMD6b --> OUT6b["Azure firewall rule blocks West Europe"]
+    OUT6b --> OUT7["NGINX proxy health check fails, routes to Germany West Central"]
 ```
 
-*Solid arrows are commands producing real files or resources; dotted
-arrows are one thing feeding another without a command in between —
-Terraform's output IPs feeding Ansible's inventory, and ArgoCD's own
-continuous polling of this repository. The bottom two branches
-(`k6` and the failover script) are the live demos, not one-time build
-steps — both can be run again at any time against the already-built
-platform.*
+*Each command leads into the real file it touches, then into what that
+step produces, feeding the next command. The last two branches (`k6` and
+the failover script) are live demos, not one-time build steps — both can
+be run again at any time against the already-built platform.*
 
 ## The trade-offs behind this architecture
 
