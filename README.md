@@ -40,29 +40,42 @@ rather than one long chain, so no single diagram outgrows the page.
 
 ```mermaid
 flowchart LR
-    CMD0["bash scripts/bootstrap-tfstate.sh<br/>Remote state storage created in Azure"]
-    CMD0 -->|terraform/azure/: main.tf, outputs.tf| OUT1["terraform apply<br/>2 VMSS + Load Balancers, both regions"]
-    CMD0 -->|terraform/gcp/: main.tf| OUT2["terraform apply<br/>GCP VM: showcase node, also hosts the failover proxy"]
+    CMD0["Bash script: bootstrap-tfstate.sh"] --> OUT0["Creates remote state storage in Azure"]
+    OUT0 --> CMD1["Terraform apply: terraform/azure/"]
+    CMD1 --> TFAZ["Defines resources in main.tf, outputs.tf"]
+    TFAZ --> OUT1["Provisions 2 VMSS and Load Balancers, both regions"]
+    OUT0 --> CMD2["Terraform apply: terraform/gcp/"]
+    CMD2 --> TFGCP["Defines resources in main.tf"]
+    TFGCP --> OUT2["Provisions the GCP VM: showcase node, also hosts the failover proxy"]
 ```
 
 **Phase 2: installing Kubernetes**
 
 ```mermaid
 flowchart LR
-    IN["Both Azure regions' servers + GCP VM ready"] -->|server IPs recorded in| A1["ansible/inventory/hosts.yml"]
-    A1 -->|IPs used to SSH into each node| A2["ansible-playbook<br/>runs playbook.yml roles: common, k3s-server, k3s-agent, proxy"]
-    A2 -->|installs and joins K3s| OUT3["K3s ready everywhere<br/>cert-manager and the failover proxy also installed"]
+    IN1["Both Azure regions' servers are ready"] --> A1["ansible/inventory/hosts.yml records their IPs"]
+    IN2["The GCP VM is ready"] --> A1
+    CMD3["Command: ansible-playbook"] --> A2["Reads ansible/playbook.yml"]
+    A1 -->|IPs used to SSH into each node| A2
+    A2 --> A3["Runs roles in order: common, k3s-server, k3s-agent, proxy"]
+    A3 --> OUT3["K3s is joined on every node; cert-manager and the failover proxy are also installed"]
 ```
 
 **Phase 3: deploying through GitOps**
 
 ```mermaid
 flowchart LR
-    IN3["K3s clusters ready"] -->|fetches + merges kubeconfigs| OUT3b["bash scripts/kubeconfig-merge.sh<br/>kubectl reachable from my laptop"]
-    OUT3b -->|installs ArgoCD, creates| CMD4["kubectl apply, k8s/argocd/<br/>ArgoCD Application manifests"]
-    CMD4 -->|ArgoCD now watches| OUT4["This repo:<br/>k8s/apps/hello-world/, k8s/apps/monitoring/"]
-    CMD5["git push"] -->|triggers a sync of| OUT4
-    OUT4 -->|deploys both| OUT5["Hello World live in both regions<br/>Uptime Kuma watching both regions and the proxy"]
+    IN3["Both K3s clusters are ready"] --> CMD3b["Bash script: kubeconfig-merge.sh"]
+    CMD3b --> OUT3b["kubectl is now reachable from my laptop"]
+    OUT3b --> CMD4["kubectl apply: k8s/argocd/"]
+    CMD4 --> K1["Creates the ArgoCD Application manifests"]
+    K1 --> OUT4["ArgoCD now watches this repo"]
+    CMD5["Command: git push"] --> K2["Updates k8s/apps/hello-world/"]
+    CMD5 --> K3["Updates k8s/apps/monitoring/"]
+    OUT4 -->|syncs changes into| K2
+    OUT4 -->|syncs changes into| K3
+    K2 --> OUT5["Hello World is live in both regions"]
+    K3 --> OUT5b["Uptime Kuma watches both regions and the proxy"]
 ```
 
 **Phase 4: the live demos** (not one-time build steps, both can be run
@@ -70,9 +83,11 @@ again at any time against the already-built platform)
 
 ```mermaid
 flowchart LR
-    IN4["Hello World live"] -->|drives real load against it| CMD6a["k6 run scripts/load-test.js<br/>HPA scales 2 to 6 pods live"]
-    IN4 -->|simulates a regional failure| CMD6b["bash scripts/failover-demo.sh break<br/>NSG rule blocks West Europe"]
-    CMD6b -->|health check fails, proxy reroutes| OUT7["Traffic now reroutes to Germany West Central"]
+    IN4["Hello World is live"] --> CMD6a["Command: k6 run scripts/load-test.js"]
+    CMD6a --> OUT6a["HPA scales from 2 to 6 pods live"]
+    IN4 --> CMD6b["Bash script: failover-demo.sh break"]
+    CMD6b --> OUT6b["An NSG rule now blocks West Europe"]
+    OUT6b -->|health check fails, proxy reroutes| OUT7["Traffic now reroutes to Germany West Central"]
 ```
 
 ## The trade-offs behind this architecture
