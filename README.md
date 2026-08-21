@@ -39,14 +39,15 @@ rather than one long chain, so no single diagram outgrows the page.
 **Phase 1: provisioning the infrastructure**
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
-    CMD0["bash scripts/bootstrap-tfstate.sh"] --> OUT0["Remote state storage created in Azure"]
-    OUT0 --> CMD1["terraform apply, terraform/azure/"]
-    CMD1 --> TFAZ["main.tf, outputs.tf"]
-    TFAZ --> OUT1["2 VMSS and Load Balancers, both regions"]
-    OUT0 --> CMD2["terraform apply, terraform/gcp/"]
-    CMD2 --> TFGCP["main.tf"]
-    TFGCP --> OUT2["GCP VM: showcase node, also hosts the failover proxy"]
+    CMD0["bash scripts/bootstrap-tfstate.sh"] -->|creates Azure storage| OUT0["Remote state storage created in Azure"]
+    OUT0 -->|state backend ready| CMD1["terraform apply, terraform/azure/"]
+    CMD1 -->|defines resources in| TFAZ["main.tf, outputs.tf"]
+    TFAZ -->|provisions| OUT1["2 VMSS and Load Balancers, both regions"]
+    OUT0 -->|state backend ready| CMD2["terraform apply, terraform/gcp/"]
+    CMD2 -->|defines resources in| TFGCP["main.tf"]
+    TFGCP -->|provisions| OUT2["GCP VM: showcase node, also hosts the failover proxy"]
 ```
 
 <details>
@@ -75,42 +76,45 @@ address the failover proxy answers on later in Phase 2.
 **Phase 2: installing Kubernetes**
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
-    IN1["Both Azure regions' servers ready"] -->|server IPs| A1["ansible/inventory/hosts.yml"]
-    IN2["GCP VM ready"] -->|server IP| A1
-    CMD3["ansible-playbook"] --> A2["ansible/playbook.yml"]
+    IN1["Both Azure regions' servers ready"] -->|server IPs recorded| A1["ansible/inventory/hosts.yml"]
+    IN2["GCP VM ready"] -->|server IP recorded| A1
+    CMD3["ansible-playbook"] -->|runs the roles in| A2["ansible/playbook.yml"]
     A1 -->|IPs used to SSH into each node| A2
-    A2 --> A3["roles: common, k3s-server, k3s-agent, proxy"]
-    A3 --> OUT3["K3s joined on every node; cert-manager everywhere; failover proxy running on the GCP VM"]
+    A2 -->|executes in order| A3["roles: common, k3s-server, k3s-agent, proxy"]
+    A3 -->|installs and joins K3s| OUT3["K3s joined on every node; cert-manager everywhere; failover proxy running on the GCP VM"]
 ```
 
 **Phase 3: deploying through GitOps**
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
-    IN3["K3s clusters ready"] --> CMD3b["bash scripts/kubeconfig-merge.sh"]
-    CMD3b --> OUT3b["kubectl reachable from my laptop"]
-    OUT3b --> CMD4["kubectl apply, k8s/argocd/"]
-    CMD4 --> K1["ArgoCD Application manifests"]
-    K1 --> OUT4["ArgoCD watching this repo"]
-    CMD5["git push"] --> K2["k8s/apps/hello-world/"]
-    CMD5 --> K3["k8s/apps/monitoring/"]
-    OUT4 --> K2
-    OUT4 --> K3
-    K2 --> OUT5["Hello World live in both regions"]
-    K3 --> OUT5b["Uptime Kuma watching both regions and the proxy"]
+    IN3["K3s clusters ready"] -->|fetches each kubeconfig| CMD3b["bash scripts/kubeconfig-merge.sh"]
+    CMD3b -->|merges into one file| OUT3b["kubectl reachable from my laptop"]
+    OUT3b -->|installs ArgoCD itself| CMD4["kubectl apply, k8s/argocd/"]
+    CMD4 -->|creates| K1["ArgoCD Application manifests"]
+    K1 -->|tells ArgoCD to watch| OUT4["ArgoCD watching this repo"]
+    CMD5["git push"] -->|updates| K2["k8s/apps/hello-world/"]
+    CMD5 -->|updates| K3["k8s/apps/monitoring/"]
+    OUT4 -->|syncs changes into| K2
+    OUT4 -->|syncs changes into| K3
+    K2 -->|deploys| OUT5["Hello World live in both regions"]
+    K3 -->|deploys| OUT5b["Uptime Kuma watching both regions and the proxy"]
 ```
 
 **Phase 4: the live demos** (not one-time build steps, both can be run
 again at any time against the already-built platform)
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
-    IN4["Hello World live"] --> CMD6a["k6 run scripts/load-test.js"]
-    CMD6a --> OUT6a["HPA scales 2 to 6 pods live"]
-    IN4 --> CMD6b["bash scripts/failover-demo.sh break"]
-    CMD6b --> OUT6b["Azure firewall rule blocks West Europe"]
-    OUT6b --> OUT7["NGINX proxy health check fails, routes to Germany West Central"]
+    IN4["Hello World live"] -->|drives real load against it| CMD6a["k6 run scripts/load-test.js"]
+    CMD6a -->|CPU crosses the HPA target| OUT6a["HPA scales 2 to 6 pods live"]
+    IN4 -->|simulates a regional failure| CMD6b["bash scripts/failover-demo.sh break"]
+    CMD6b -->|adds an NSG rule blocking| OUT6b["Azure firewall rule blocks West Europe"]
+    OUT6b -->|health check fails, proxy reroutes| OUT7["NGINX proxy health check fails, routes to Germany West Central"]
 ```
 
 ## The trade-offs behind this architecture
