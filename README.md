@@ -39,7 +39,6 @@ rather than one long chain, so no single diagram outgrows the page.
 **Phase 1: provisioning the infrastructure**
 
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
     CMD0["bash scripts/bootstrap-tfstate.sh"] -->|creates Azure storage| OUT0["Remote state storage created in Azure"]
     OUT0 -->|state backend ready| CMD1["terraform apply, terraform/azure/"]
@@ -76,7 +75,6 @@ address the failover proxy answers on later in Phase 2.
 **Phase 2: installing Kubernetes**
 
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
     IN1["Both Azure regions' servers ready"] -->|server IPs recorded| A1["ansible/inventory/hosts.yml"]
     IN2["GCP VM ready"] -->|server IP recorded| A1
@@ -89,7 +87,6 @@ flowchart LR
 **Phase 3: deploying through GitOps**
 
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
     IN3["K3s clusters ready"] -->|fetches each kubeconfig| CMD3b["bash scripts/kubeconfig-merge.sh"]
     CMD3b -->|merges into one file| OUT3b["kubectl reachable from my laptop"]
@@ -108,7 +105,6 @@ flowchart LR
 again at any time against the already-built platform)
 
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 60, 'rankSpacing': 80}}}%%
 flowchart LR
     IN4["Hello World live"] -->|drives real load against it| CMD6a["k6 run scripts/load-test.js"]
     CMD6a -->|CPU crosses the HPA target| OUT6a["HPA scales 2 to 6 pods live"]
