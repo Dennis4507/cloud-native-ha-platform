@@ -4,21 +4,45 @@
 
 ## What this is
 
-This project is my submission for CGI's Cloud & DevOps Challenge. The brief
-asks for a Kubernetes platform that can survive real failures - a single
-server dying, a whole cluster going down, an entire region becoming
-unreachable - and asks that it all be built through code rather than by
-clicking things together by hand.
+My submission for CGI's Cloud & DevOps Challenge: a Kubernetes platform,
+built entirely through code, that survives real failures - a server dying,
+a cluster going down, a whole region becoming unreachable.
 
-I built two identical Kubernetes clusters, one in Azure's West Europe region
-and one in Germany West Central, using Terraform to create the infrastructure and
-Ansible to configure it. A small web application runs on both, spread across
-multiple servers so that losing one server never takes the application down.
-If an entire region fails, traffic automatically moves to the other one. On
-top of that core, I added two extras that go beyond what the challenge
-strictly asks for: the same automation pattern applied to a server on Google
-Cloud, and a GitOps pipeline so that deployments happen by pushing to Git
-rather than by running commands by hand.
+Two identical Kubernetes clusters (Azure West Europe and Germany West
+Central), provisioned with Terraform and configured with Ansible. A small
+web app runs on both, spread across multiple servers so losing one never
+takes it down - and if a whole region fails, traffic moves to the other one
+automatically. Two extras beyond what the challenge asks for: the same
+automation pattern applied to a Google Cloud server, and a GitOps pipeline
+so deployments happen by pushing to Git, not running commands by hand.
+
+## Map — jump straight to what you need
+
+**By requirement:**
+
+| # | Requirement | Where it's answered |
+|---|---|---|
+| 1 | Kubernetes cluster via IaC | [Getting Kubernetes actually installed and joined](#getting-kubernetes-actually-installed-and-joined), [Making `kubectl` itself work from my own laptop](#making-kubectl-itself-work-from-my-own-laptop) |
+| 2 | Hello World, reachable in a browser | [Hello World, deployed by GitOps instead of by hand](#hello-world-deployed-by-gitops-instead-of-by-hand-requirements-2-3-4) |
+| 3 | Round-robin traffic + autoscaling | [Requirement 3, finished: the live autoscaling demo](#requirement-3-finished-the-live-autoscaling-demo), [Requirement 3's other half](#requirement-3s-other-half-making-round-robin-visible-and-a-real-scheduling-deadlock-along-the-way) |
+| 4 | Ingress + valid TLS certificate | [The certificate that looked right until it was actually checked](#the-certificate-that-looked-right-until-it-was-actually-checked) |
+| 5 | Multi-region HA + automatic failover | [Choosing how Requirement 5's traffic routing works](#choosing-how-requirement-5s-traffic-routing-actually-works), [Requirement 5, finished: the live failover demo](#requirement-5-finished-the-live-failover-demo) |
+| 6 | Monitoring concept | [`requirement-6-monitoring-concept.md`](requirement-6-monitoring-concept.md), [Uptime Kuma, live and watching both regions](#uptime-kuma-live-and-watching-both-regions) |
+| 7 | Backup & recovery concept | [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
+| 8 | DNS debugging methodology | [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
+
+**Beyond the 8 requirements:** [Architecture, at a glance](#architecture-at-a-glance) · [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2) · [Checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it) · [Screenshots](#screenshots)
+
+**Real incidents hit and fixed during the build** — worth knowing these exist, since they're some of the strongest evidence this was actually built and debugged, not just described:
+
+| Incident | What happened | Where |
+|---|---|---|
+| The wrong certificate | Browser showed Traefik's default self-signed cert, not the real one - a `TLSStore` misconfiguration | [The certificate that looked right until it was actually checked](#the-certificate-that-looked-right-until-it-was-actually-checked) |
+| GCP OAuth scope + severe I/O wait | `gcloud` silently granted the wrong scope; the Always Free tier's HDD-only disk caused 91.8% I/O wait | [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2) |
+| The six-hour proxy install saga | A D-state `apt-check` process, then duplicate `ansible-playbook` runs fighting over the same lock | [Requirement 5's traffic router, and a six-hour lesson](#requirement-5s-traffic-router-and-a-six-hour-lesson-in-checking-my-own-work) |
+| The NSG priority rejection | `failover-demo.sh` used an invalid Azure NSG priority (90, below the allowed minimum of 100) | [Requirement 5, finished: the live failover demo](#requirement-5-finished-the-live-failover-demo) |
+| The pod-scheduling deadlock | `required` anti-affinity + a mismatched `maxReplicas` left a pod permanently `Pending` | [Requirement 3's other half](#requirement-3s-other-half-making-round-robin-visible-and-a-real-scheduling-deadlock-along-the-way) |
+| The B2s capacity limit | The cheaper VM size had no available capacity on this subscription, forcing a 2.5x costlier fallback | [Checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it) |
 
 ## The 8 requirements this answers
 
@@ -29,9 +53,9 @@ rather than by running commands by hand.
 | 3 | Traffic spread across multiple servers, scaling automatically under load | The application runs on 2+ servers at once, and adds more automatically when busy |
 | 4 | Encrypted traffic (HTTPS) with a valid certificate | A certificate is issued automatically inside the cluster |
 | 5 | The platform keeps working if an entire region fails | A second, independent cluster in a different region, with automatic traffic failover |
-| 6 | A plan for monitoring the platform's health | Described in `docs/monitoring-concept.md`, plus a small live dashboard |
-| 7 | A plan for backing up and recovering the platform | Described in `docs/backup-recovery-concept.md` |
-| 8 | A method for diagnosing DNS problems on a server | A written, rehearsed troubleshooting process |
+| 6 | A plan for monitoring the platform's health | Described in [`requirement-6-monitoring-concept.md`](requirement-6-monitoring-concept.md), plus a small live dashboard |
+| 7 | A plan for backing up and recovering the platform | Described in [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
+| 8 | A method for diagnosing DNS problems on a server | Described in [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
 
 ## Keeping this project isolated from everything else
 
@@ -84,6 +108,14 @@ than silently creating a conflicting duplicate.*
 *The fix: bringing the existing resource group under Terraform's management
 with `terraform import`, rather than recreating it. Personal details in the
 scrollback (IP address, SSH key) are manually blacked out.*
+
+## Architecture, at a glance
+
+![Full architecture diagram - GitHub as source of truth, ArgoCD managing both Azure regions, the GCP node running K3s and the failover proxy](docs/architecture.png)
+*Generated with Python's `diagrams` library. Green arrows are GitOps (ArgoCD
+pulling from Git); blue is real traffic; dashed brown is one-time
+infrastructure provisioning. GitHub Actions is shown as planned, not yet
+built - see the CI section below.*
 
 ## Where things stand right now
 
@@ -1014,6 +1046,59 @@ node, and K3s was cleanly reinstalled.
 *All three clusters - two Azure regions and this one - now live in a
 single merged kubeconfig, each reachable by its own context.*
 
+### Checking the cost claim, not just asserting it
+
+The brief's "don't spend any money" rule deserves real evidence, not just
+a paragraph promising it was followed.
+
+**GCP is genuinely €0.00**, confirmed directly in Google Cloud's own
+billing reports for the `cgi-challenge-ha-platform` project, covering the
+full build window:
+
+![GCP billing report showing exactly €0 for the whole build](docs/screenshots/88-gcp-zero-cost-confirmed.png)
+
+**Azure is not €0** - worth saying plainly rather than hiding it. Cost
+Management, scoped to `rg-ha-platform`, shows real charges - the two
+running VMSS instances (`vmss-...eu west`, `vmss-...de west central`) are
+the largest line items, plus small amounts for the Load Balancers' Public
+IPs and disks:
+
+![Azure Cost Management, itemized by resource](docs/screenshots/89-azure-cost-breakdown.png)
+
+That's not a contradiction of the "spend zero" rule, for a specific
+reason: GCP's Always Free tier is a genuinely permanent, zero-cost offer
+for one small VM. Azure has no equivalent free tier at the scale this
+project actually needs - a real Kubernetes cluster, in two regions, is
+Requirement 1 and Requirement 5's literal graded deliverable, not an
+optional extra the brief's rule was written to rule out. The brief's own
+wording targets "infrastructure services, domains, or certificates" -
+avoidable extras like a purchased domain or a paid DNS failover service,
+both of which this project genuinely avoided (see the DNS research table
+above). Running compute for the actual Kubernetes cluster isn't in that
+category; it's the thing being graded.
+
+**Was there a cheaper VM size (Azure calls this a SKU - Stock Keeping
+Unit) that could have worked instead?** Yes, and it was tried first -
+`terraform/azure/variables.tf` already documents this: `Standard_B2s` (2
+vCPU, 4 GB memory) was the original choice specifically because it's the
+smallest size that comfortably runs Kubernetes, chosen to keep cost close
+to zero. Azure reported no available capacity for it on this subscription,
+in either West Europe or North Europe - a real limitation hit live during
+the build, not a preference. `Standard_D2s_v3` replaced it: not the
+cheapest possible size, but a mainstream one with no capacity restriction,
+and with more memory (8 GB instead of 4 GB) as a side effect.
+
+Checked against Azure's own published retail pricing for West Europe:
+`Standard_B2s` is **$0.048 per hour**; `Standard_D2s_v3` is **$0.12 per
+hour** - two and a half times more expensive, not a marginal difference.
+Had B2s actually been available, the real Azure total shown above would
+likely have landed somewhere around €4-5 instead of roughly €12, scaling
+down proportionally with the hourly rate. The gap between the two isn't a
+design choice; it's the cost of a capacity constraint that had no
+workaround on this specific subscription. What *is* a design choice, and
+what kept even the D2s_v3 total this low, is deallocating the VMs between
+build sessions rather than leaving them running continuously.
+
 ### Requirement 5's traffic router, and a six-hour lesson in checking my own work
 
 The same GCP (Google Cloud Platform) showcase VM (Virtual Machine) also runs
@@ -1134,28 +1219,22 @@ more time than the two seconds it takes to actually check.
 
 ## Screenshots
 
-This section fills in as each part of the platform actually comes to life -
-each entry below will link to an image once that step has been completed
-and verified.
+90 screenshots live in [`docs/screenshots/`](docs/screenshots/), numbered in
+build order and referenced throughout this document - every one of them is
+real output from this actual build, not a mockup. Rather than duplicate that
+navigation here, see the [Map](#map--jump-straight-to-what-you-need) at the
+top for the fastest way to find a specific one, by requirement or by
+incident.
 
-- [x] Isolated resource groups and a scoped sandbox identity (above)
-- [x] Terraform's state storage created, and Terraform initialized (above)
-- [x] Terraform successfully planning the infrastructure (above)
-- [x] Infrastructure actually applied - both virtual machine scale sets live (above)
-- [x] Both clusters showing healthy, ready Kubernetes nodes, reached
-      directly from my own laptop (above) - **Requirement 1 done**
-- [x] The Hello World page, loaded securely in a browser (above) -
-      **Requirements 2 and 4 done**
-- [x] The application automatically adding more servers under load, and
-      round-robin routing across all of them, proven together in one
-      combined live run (above) - **Requirement 3 done**
-- [x] The self-hosted NGINX proxy built and verified, serving West Europe
-      through it over HTTPS (above)
-- [x] Traffic automatically switching to the second region during a
-      simulated failure (above) - **Requirement 5 done**
-- [x] The GitOps dashboard showing both clusters in sync (above)
-- [x] The Google Cloud server, built with the same automation (above)
-- [ ] A real DNS troubleshooting session on a server
+- [x] Requirements 1-5: all live, all demoed, all screenshotted
+- [x] Requirements 6-8: written concept docs, each with real supporting
+      evidence rather than staged examples - see
+      [`requirement-6-monitoring-concept.md`](requirement-6-monitoring-concept.md),
+      [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md),
+      [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md)
+- [x] Every real incident hit during the build, kept in rather than edited
+      out - see the incidents table in the Map
+- [x] The cost claim checked against real billing data, not just asserted
 
 ## How this is being built
 

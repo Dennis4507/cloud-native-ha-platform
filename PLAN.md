@@ -161,29 +161,72 @@ sufficient — no further tightening planned.
       never runs anything that needs either. This same VM now also runs the
       standalone NGINX proxy for Requirement 5, as its own process alongside
       K3s - see the proxy line above.
+- [x] Cost claim checked with real evidence, not just asserted: GCP
+      billing confirmed at a real €0.00 for the whole build; Azure's real
+      cost (~€12) documented honestly with a reason - `Standard_B2s` (the
+      cheaper SKU) had no available capacity on this subscription in
+      either region, confirmed in `terraform/azure/variables.tf`;
+      `Standard_D2s_v3` costs 2.5x more per hour ($0.12 vs $0.048,
+      verified against Azure's live retail pricing API) - the actual cost
+      of a real capacity constraint, not a design choice.
 - [x] Uptime Kuma: **live and verified** - deployed via ArgoCD, both
       regions' real HTTPS endpoints monitored (West Europe, Germany West
       Central), TLS errors correctly ignored (self-signed certs), interval
       and timeout tuned down for a snappier live demo. A third monitor now
       also watches the proxy's own address (`(GCP) Failover Proxy`),
-      independent of the two direct region monitors. The written
-      `monitoring-concept.md` doc still to write.
-- [ ] Written concept docs: `docs/monitoring-concept.md` (Req 6, also
-      mentions ArgoCD's Healthy/Degraded status as a second monitoring
-      signal alongside Uptime Kuma), `docs/backup-recovery-concept.md`
-      (Req 7, MTTR reasoning + Velero mentioned as the production answer
-      for stateful data, not built live - Hello World has no state to back
-      up, so there's nothing real for it to demonstrate)
+      independent of the two direct region monitors. Written
+      `requirement-6-monitoring-concept.md` doc done - see below.
+- [x] `requirement-6-monitoring-concept.md` (Req 6) → **done**: two-layer framing
+      (Uptime Kuma = external synthetic checks, ArgoCD Healthy/Degraded =
+      internal resource health), backed by two real incidents from this
+      build as evidence rather than hypotheticals - the pod-scheduling
+      deadlock (ArgoCD caught it, Uptime Kuma couldn't see it) and the
+      Requirement 5 failover demo (the reverse: Kuma caught it, ArgoCD
+      couldn't). Azure Monitor and Prometheus/blackbox-exporter/Grafana
+      covered as the production-scale alternatives, not built live.
+- [x] `requirement-7-backup-recovery-concept.md` (Req 7) → **done**: two scenarios
+      (app-level drift, solved live by `selfHeal: true` - confirmed set on
+      all 3 ArgoCD Applications; whole-region loss, solved by re-running
+      Terraform + Ansible + ArgoCD resync). "Zero downtime" framed as a
+      side effect of Requirement 5's multi-region HA rather than a separate
+      mechanism. MTTR backed by a real measured number, not a guess: the
+      Requirement 3 pod-scheduling deadlock, diagnosed from scratch and
+      fully resolved, took 44 minutes start to finish (20:09:56 Degraded →
+      20:53:57 Healthy, both from screenshot timestamps) - a harder case
+      than a routine region rebuild since it needed live diagnosis, still
+      comfortably inside the 4-hour target. Velero explained as the
+      production answer for genuinely stateful data, explicitly not on
+      this app's critical path since Hello World has none.
 - [ ] Live Req 7 demo, using ArgoCD's selfHeal (already configured) rather
       than building anything new: scale the Hello World deployment down by
       hand with `kubectl`, bypassing Git, and show ArgoCD noticing the
       drift and restoring it automatically - a real, fast, safe proof of
       "the platform recovers on its own," at zero extra build cost
-- [ ] DNS debugging runbook + one rehearsed captured run (Req 8)
+- [x] `requirement-8-dns-debug-runbook.md` (Req 8) → **done**: a straight
+      methodology answer, same treatment as Requirements 6 and 7 - a
+      description, not a staged live demo. TCP/IP-model-framed: start at
+      `kubectl get pods`, narrow down through CoreDNS health and node
+      config, explain why packet capture (`tcpdump`) is the right method
+      once configuration checks stop giving new information, correlate
+      with `iptables`, note recovery is automatic (`kubelet` retries on
+      its own). No fabricated test pod or scenario - a live/recorded take
+      was attempted first but abandoned after repeated timing issues
+      (kubelet's retry backoff vs. tcpdump's capture window kept costing
+      full re-recordings); a clear written methodology was the more
+      reliable answer, and one CGI's own wording explicitly allows.
+      Includes the AKS bridge: self-managed K3s uses SSH, real AKS would
+      use `kubectl debug node` instead - same methodology either way.
 - [ ] GitHub Actions CI (`tflint` → `checkov` → `helm lint`) - deliberately
       last, since it checks code that needs to already be finished and
       stable for the checks to mean anything
-- [ ] Architecture diagram, presentation script, timed rehearsal - rehearsal
+- [x] `docs/architecture_diagram.py` → **done**: full architecture, real
+      Azure/GCP/GitOps components (verified against the actual `diagrams`
+      library classes installed, not guessed) - GitHub as source of truth,
+      Terraform/Ansible provisioning all 3 node groups, ArgoCD managing
+      both Azure clusters, the GCP node running K3s + the failover proxy,
+      Uptime Kuma's independent health checks, GitHub Actions shown as
+      planned/not yet built. Embedded in README as `docs/architecture.png`.
+- [ ] Presentation script, timed rehearsal - rehearsal
       needs to specifically include a live run-through of the actual build
       sequence (Terraform creating the servers, Ansible configuring them),
       not just the finished result - and specifically the moment certain
