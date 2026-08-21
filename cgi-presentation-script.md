@@ -72,7 +72,7 @@ working in both regions.
 
 ---
 
-## Milestone 2 — Creating our own Azure sandbox
+## Milestone 2 — Creating my own Azure sandbox
 
 **Requirement tag:** Requirement 1 (the access/governance prerequisite)
 

@@ -27,6 +27,12 @@ ansible/kubeconfig-*.yaml
 merged-kubeconfig.yaml
 *.kubeconfig
 
+# Internal build-process notes, not meant for the shared/public repo -
+# working notes, TODO tracking, and AI-collaboration process detail that
+# has nothing to do with the actual deliverable.
+/PLAN.md
+/CLAUDE.md
+
 # OS noise
 .DS_Store
 Thumbs.db

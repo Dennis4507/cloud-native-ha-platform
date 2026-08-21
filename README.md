@@ -22,46 +22,147 @@ pulling from Git); blue is real traffic; dashed brown is one-time
 infrastructure provisioning. GitHub Actions is shown as planned, not yet
 built - see the CI section below.*
 
+## The build pipeline — scaffold and commands together
+
+The diagram above shows what talks to what while the platform is
+*running*. This one shows how it gets *built* — which command triggers
+which real file, and what that command hands off to the next stage.
+
+```mermaid
+flowchart TD
+    subgraph BOOT["scripts/"]
+        B1[bootstrap-tfstate.sh]
+        B2[kubeconfig-merge.sh]
+        B3[load-test.js]
+        B4[failover-demo.sh]
+    end
+    subgraph TFAZ["terraform/azure/"]
+        TFAZ1[main.tf]
+        TFAZ2[outputs.tf]
+    end
+    subgraph TFGCP["terraform/gcp/"]
+        TFGCP1[main.tf]
+    end
+    subgraph ANS["ansible/"]
+        A1[inventory/hosts.yml]
+        A2[playbook.yml]
+        A3["roles: common → k3s-server → k3s-agent → proxy"]
+    end
+    subgraph K8S["k8s/"]
+        K1[argocd/application-*.yaml]
+        K2["apps/hello-world/base + overlays"]
+        K3[apps/monitoring/uptime-kuma.yaml]
+    end
+
+    CMD0(["bash bootstrap-tfstate.sh"]) --> B1 --> OUT0[Remote state storage created in Azure]
+
+    OUT0 --> CMD1(["terraform apply — azure/"])
+    CMD1 --> TFAZ1 --> TFAZ2
+    TFAZ2 -->|"public IPs"| OUT1[2 VMSS + Load Balancers, both regions]
+
+    OUT0 --> CMD2(["terraform apply — gcp/"])
+    CMD2 --> TFGCP1 --> OUT2[GCP showcase VM]
+
+    OUT1 --> A1
+    OUT2 --> A1
+    CMD3(["ansible-playbook"]) --> A2 --> A3
+    A1 -.->|"IPs feed the inventory"| A2
+    A3 --> OUT3["K3s installed + joined, cert-manager + NGINX proxy installed"]
+
+    OUT3 --> CMD3b(["bash kubeconfig-merge.sh"])
+    CMD3b --> B2 --> OUT3b["kubectl actually reachable from my laptop"]
+
+    OUT3b --> CMD4(["kubectl apply -f k8s/argocd/"])
+    CMD4 --> K1 --> OUT4[ArgoCD watching this repo]
+
+    CMD5(["git push"]) --> K2
+    CMD5 --> K3
+    OUT4 -.->|"polls the repo"| K2
+    OUT4 -.->|"polls the repo"| K3
+    K2 --> OUT5[Hello World live, both regions]
+    K3 --> OUT5b[Uptime Kuma watching both regions + the proxy]
+
+    OUT5 --> CMD6a(["k6 run load-test.js"])
+    CMD6a --> B3 --> OUT6a["HPA scales 2 → 6 pods live"]
+
+    OUT5 --> CMD6b(["bash failover-demo.sh break"])
+    CMD6b --> B4 --> OUT6b[NSG rule blocks West Europe]
+    OUT6b --> OUT7["NGINX proxy's health check fails → routes to Germany West Central"]
+```
+
+*Solid arrows are commands producing real files or resources; dotted
+arrows are one thing feeding another without a command in between —
+Terraform's output IPs feeding Ansible's inventory, and ArgoCD's own
+continuous polling of this repository. The bottom two branches
+(`k6` and the failover script) are the live demos, not one-time build
+steps — both can be run again at any time against the already-built
+platform.*
+
+## The trade-offs behind this architecture
+
+Every major decision here came from a real constraint, not a preference.
+Worth stating plainly, up front:
+
+- **Self-managed K3s on plain VMs, not AKS (Azure's managed Kubernetes).**
+  Requirement 8 needs direct node-level access — a real shell to run
+  `tcpdump` and inspect firewall rules with. AKS keeps worker nodes off
+  the public internet with no SSH by default; a plain VM gives that
+  access directly.
+- **A self-hosted NGINX proxy, not Azure Traffic Manager.** Traffic
+  Manager isn't free — it has a base monthly cost plus per-query
+  charges, for as long as it exists. The brief's own rule is zero money
+  spent on infrastructure, and it explicitly names a self-hosted proxy as
+  an equally valid option to a managed traffic-routing service.
+- **`Standard_D2s_v3` VMs, not the cheaper `Standard_B2s`.** Not a
+  choice — `B2s` had zero available capacity on this subscription,
+  confirmed directly against Azure's own SKU catalog. `D2s_v3` costs
+  2.5x more per hour, verified against Azure's real pricing, and it's
+  the reason Azure isn't quite at zero cost the way GCP is.
+- **Self-signed certificates, not a public CA.** The brief explicitly
+  accepts either, and a public certificate would need a real registered
+  domain — which the brief's own "no domain" rule rules out entirely.
+- **One GCP VM as a separate showcase, not part of the graded failover
+  path.** Keeps the one component outside Azure isolated from the actual
+  HA (High Availability) demo, so a problem with it can never break
+  Requirement 5's live proof.
+
+Full detail on each of these, including the real incidents that forced
+some of them, lives in the requirement pages linked below.
+
 ## Map — jump straight to what you need
 
-**By requirement:**
+**If you only read one thing:** the live failover demo under
+Requirement 5 — a real region simulated as down, watched recovering
+automatically across a browser, an independent monitoring dashboard, and
+a raw command line, at the same time.
 
-| # | Requirement | Where it's answered |
-|---|---|---|
-| 1 | Kubernetes cluster via IaC | [Getting Kubernetes actually installed and joined](#getting-kubernetes-actually-installed-and-joined), [Making `kubectl` itself work from my own laptop](#making-kubectl-itself-work-from-my-own-laptop) |
-| 2 | Hello World, reachable in a browser | [Hello World, deployed by GitOps instead of by hand](#hello-world-deployed-by-gitops-instead-of-by-hand-requirements-2-3-4) |
-| 3 | Round-robin traffic + autoscaling | [Requirement 3, finished: the live autoscaling demo](#requirement-3-finished-the-live-autoscaling-demo), [Requirement 3's other half](#requirement-3s-other-half-making-round-robin-visible-and-a-real-scheduling-deadlock-along-the-way) |
-| 4 | Ingress + valid TLS certificate | [The certificate that looked right until it was actually checked](#the-certificate-that-looked-right-until-it-was-actually-checked) |
-| 5 | Multi-region HA + automatic failover | [Choosing how Requirement 5's traffic routing works](#choosing-how-requirement-5s-traffic-routing-actually-works), [Requirement 5, finished: the live failover demo](#requirement-5-finished-the-live-failover-demo) |
-| 6 | Monitoring concept | [`requirement-6-monitoring-concept.md`](requirement-6-monitoring-concept.md), [Uptime Kuma, live and watching both regions](#uptime-kuma-live-and-watching-both-regions) |
-| 7 | Backup & recovery concept | [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
-| 8 | DNS debugging methodology | [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
+Every requirement below is its own short, self-contained page — what was
+built, the live evidence, and the real incidents hit along the way,
+clearly separated.
+
+| # | What was asked | What I built, in one line | Full detail |
+|---|---|---|---|
+| 1 | Kubernetes cluster, built through code | 2 independent clusters, Terraform + Ansible, verified live | [`requirement-1-kubernetes-cluster.md`](requirement-1-kubernetes-cluster.md) |
+| 2 | "Hello World," reachable in a browser | Deployed by GitOps — pushing to Git is the deploy | [`requirement-2-hello-world.md`](requirement-2-hello-world.md) |
+| 3 | Round-robin traffic + autoscaling under load | 2 → 6 pods live under real load, round-robin proven at the same time | [`requirement-3-autoscaling-roundrobin.md`](requirement-3-autoscaling-roundrobin.md) |
+| 4 | Ingress with a valid TLS certificate | Traefik + cert-manager, self-signed, auto-issued | [`requirement-4-ingress-tls.md`](requirement-4-ingress-tls.md) |
+| 5 | Multi-region HA with automatic failover | A second cluster + self-hosted proxy, live failover demo | [`requirement-5-multi-region-ha.md`](requirement-5-multi-region-ha.md) |
+| 6 | Monitoring concept | Two-layer approach, plus a live dashboard | [`requirement-6-monitoring-concept.md`](requirement-6-monitoring-concept.md) |
+| 7 | Backup & recovery concept | Two scenarios, backed by a real measured incident | [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
+| 8 | DNS debugging methodology | TCP/IP-model-framed, real commands, real evidence | [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
 
 **Beyond the 8 requirements:** [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2) · [Checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it) · [Screenshots](#screenshots)
 
-**Real incidents hit and fixed during the build** — worth knowing these exist, since they're some of the strongest evidence this was actually built and debugged, not just described:
+**Real incidents hit and fixed during the build** — worth knowing these exist on their own, since they're some of the strongest evidence this was actually built and debugged, not just described:
 
 | Incident | What happened | Where |
 |---|---|---|
-| The wrong certificate | Browser showed Traefik's default self-signed cert, not the real one - a `TLSStore` misconfiguration | [The certificate that looked right until it was actually checked](#the-certificate-that-looked-right-until-it-was-actually-checked) |
-| GCP OAuth scope + severe I/O wait | `gcloud` silently granted the wrong scope; the Always Free tier's HDD-only disk caused 91.8% I/O wait | [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2) |
-| The six-hour proxy install saga | A D-state `apt-check` process, then duplicate `ansible-playbook` runs fighting over the same lock | [Requirement 5's traffic router, and a six-hour lesson](#requirement-5s-traffic-router-and-a-six-hour-lesson-in-checking-my-own-work) |
-| The NSG priority rejection | `failover-demo.sh` used an invalid Azure NSG priority (90, below the allowed minimum of 100) | [Requirement 5, finished: the live failover demo](#requirement-5-finished-the-live-failover-demo) |
-| The pod-scheduling deadlock | `required` anti-affinity + a mismatched `maxReplicas` left a pod permanently `Pending` | [Requirement 3's other half](#requirement-3s-other-half-making-round-robin-visible-and-a-real-scheduling-deadlock-along-the-way) |
-| The B2s capacity limit | The cheaper VM size had no available capacity on this subscription, forcing a 2.5x costlier fallback | [Checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it) |
-
-## The 8 requirements this answers
-
-| # | What was asked | How it's answered |
-|---|---|---|
-| 1 | A Kubernetes cluster, built through code | Terraform provisions the servers, Ansible installs Kubernetes on them |
-| 2 | A simple "Hello World" web page, reachable in a browser | A small web server, deployed to the cluster |
-| 3 | Traffic spread across multiple servers, scaling automatically under load | The application runs on 2+ servers at once, and adds more automatically when busy |
-| 4 | Encrypted traffic (HTTPS) with a valid certificate | A certificate is issued automatically inside the cluster |
-| 5 | The platform keeps working if an entire region fails | A second, independent cluster in a different region, with automatic traffic failover |
-| 6 | A plan for monitoring the platform's health | Described in [`requirement-6-monitoring-concept.md`](requirement-6-monitoring-concept.md), plus a small live dashboard |
-| 7 | A plan for backing up and recovering the platform | Described in [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
-| 8 | A method for diagnosing DNS problems on a server | Described in [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
+| The wrong certificate | Browser showed Traefik's default cert, not the real one — a `TLSStore` misconfiguration | [`requirement-4-ingress-tls.md`](requirement-4-ingress-tls.md) |
+| GCP OAuth scope + severe I/O wait | `gcloud` silently granted the wrong scope; the Always Free tier's disk caused 91.8% I/O wait | [The GCP showcase](#the-gcp-showcase-cherry-2) |
+| The six-hour proxy install saga | A stuck update-checker, then duplicate `ansible-playbook` runs fighting over the same lock | [`requirement-5-multi-region-ha.md`](requirement-5-multi-region-ha.md) |
+| The NSG priority rejection | The failover script used an invalid Azure priority value (90, below the allowed minimum) | [`requirement-5-multi-region-ha.md`](requirement-5-multi-region-ha.md) |
+| The pod-scheduling deadlock | A hard anti-affinity rule and a mismatched autoscaler limit left a pod permanently stuck | [`requirement-3-autoscaling-roundrobin.md`](requirement-3-autoscaling-roundrobin.md) |
+| The B2s capacity limit | The cheaper VM size had zero available capacity, forcing a 2.5x costlier fallback | [Checking the cost claim](#checking-the-cost-claim-not-just-asserting-it) |
 
 ## Keeping this project isolated from everything else
 
@@ -1241,7 +1342,7 @@ The day-to-day plan, including exactly what's done and what's next, lives in
 [ARCHITECTURE.md](ARCHITECTURE.md) (currently being rewritten to match the
 simplified plan). Every piece of infrastructure code has its own explanatory
 comments written directly alongside it, so the reasoning for a decision
-lives right next to the decision itself. [cli-output-recap-reminder.md](cli-output-recap-reminder.md)
+lives right next to the decision itself. [docs/cli-output-recap-reminder.md](docs/cli-output-recap-reminder.md)
 explains the recurring tool output shown throughout this document - the
 Ansible, Terraform, and kubectl fields that appear in screenshot after
 screenshot - field by field.
