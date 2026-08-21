@@ -745,7 +745,7 @@ Files: `.github/workflows/ci.yaml`
 ### Phase 10 — Presentation preparation (3 steps)
 
 **Step 1 — write the script**
-Files: `docs/cgi-presentation-script.md` (rewrite — the existing file is
+Files: `cgi-presentation-script.md` (rewrite — the existing file is
 built for the old 6-provider chain)
 
 Follow the Act structure below. Every line should be something Denis could

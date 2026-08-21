@@ -16,6 +16,12 @@ automatically. Two extras beyond what the challenge asks for: the same
 automation pattern applied to a Google Cloud server, and a GitOps pipeline
 so deployments happen by pushing to Git, not running commands by hand.
 
+![Full architecture diagram - GitHub as source of truth, ArgoCD managing both Azure regions, the GCP node running K3s and the failover proxy](docs/architecture.png)
+*Generated with Python's `diagrams` library. Green arrows are GitOps (ArgoCD
+pulling from Git); blue is real traffic; dashed brown is one-time
+infrastructure provisioning. GitHub Actions is shown as planned, not yet
+built - see the CI section below.*
+
 ## Map — jump straight to what you need
 
 **By requirement:**
@@ -31,7 +37,7 @@ so deployments happen by pushing to Git, not running commands by hand.
 | 7 | Backup & recovery concept | [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
 | 8 | DNS debugging methodology | [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
 
-**Beyond the 8 requirements:** [Architecture, at a glance](#architecture-at-a-glance) · [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2) · [Checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it) · [Screenshots](#screenshots)
+**Beyond the 8 requirements:** [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2) · [Checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it) · [Screenshots](#screenshots)
 
 **Real incidents hit and fixed during the build** — worth knowing these exist, since they're some of the strongest evidence this was actually built and debugged, not just described:
 
@@ -108,14 +114,6 @@ than silently creating a conflicting duplicate.*
 *The fix: bringing the existing resource group under Terraform's management
 with `terraform import`, rather than recreating it. Personal details in the
 scrollback (IP address, SSH key) are manually blacked out.*
-
-## Architecture, at a glance
-
-![Full architecture diagram - GitHub as source of truth, ArgoCD managing both Azure regions, the GCP node running K3s and the failover proxy](docs/architecture.png)
-*Generated with Python's `diagrams` library. Green arrows are GitOps (ArgoCD
-pulling from Git); blue is real traffic; dashed brown is one-time
-infrastructure provisioning. GitHub Actions is shown as planned, not yet
-built - see the CI section below.*
 
 ## Where things stand right now
 

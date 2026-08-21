@@ -72,7 +72,7 @@ in front of the panel.
 ## What's actually on disk right now
 
 Just the scaffold folders, plus:
-`ARCHITECTURE.md`, `CLAUDE.md`, `README.md`, `docs/cgi-presentation-script.md`,
+`ARCHITECTURE.md`, `CLAUDE.md`, `README.md`, `cgi-presentation-script.md`,
 `docs/failover-runbook.md` — all five still reflect the earlier, bigger plan
 and need trimming as we go. Everything else built earlier today (Terraform,
 the bootstrap script, `Makefile`, `platform.yaml`, the hetzner/stackit/aws
@@ -226,7 +226,19 @@ sufficient — no further tightening planned.
       both Azure clusters, the GCP node running K3s + the failover proxy,
       Uptime Kuma's independent health checks, GitHub Actions shown as
       planned/not yet built. Embedded in README as `docs/architecture.png`.
-- [ ] Presentation script, timed rehearsal - rehearsal
+- [x] `cgi-presentation-script.md` → **done, second full rewrite**:
+      restructured again per Denis's direction - 14 milestones in real
+      build order (server choice → sandbox → Terraform → Ansible → ...),
+      not requirement-number order, since that's how it actually happened
+      and reads more naturally live. Each milestone tagged with its
+      requirement(s). Scaffold explained file-by-file for Terraform/
+      Ansible/GCP, with VMSS and LB acronyms expanded and the reasoning
+      for choosing VMSS stated explicitly. Every incident follows the
+      same shape: the issue → what was actually found → the fix - not
+      just "it broke, here's the fix." Bold headers throughout so it
+      works as both a live script and a skimmable reference. README stays
+      the thorough browsing reference; this is what gets presented from.
+- [ ] Timed rehearsal - rehearsal
       needs to specifically include a live run-through of the actual build
       sequence (Terraform creating the servers, Ansible configuring them),
       not just the finished result - and specifically the moment certain
@@ -256,7 +268,7 @@ so they sort in the order they'll be needed. Every screenshot does double
 duty: it fills in one of the checkboxes in `README.md`'s screenshot section
 (so anyone reading the repo can follow along and see the platform actually
 working, not just take the claims on faith), and it becomes a real slide or
-talking point in `docs/cgi-presentation-script.md` rather than something
+talking point in `cgi-presentation-script.md` rather than something
 described from memory. I'll call out explicitly, every time a step reaches
 a screenshot-worthy moment, what to capture and which of the two documents
 it belongs in — Denis takes it (Win+Shift+S is the fastest capture tool),
