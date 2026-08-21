@@ -4,18 +4,24 @@
 
 ## What this is
 
-My submission for CGI's Cloud & DevOps Challenge is a Kubernetes platform,
-built entirely through code, that survives real failures: a server dying,
-a cluster going down, a whole region becoming unreachable.
+My submission for CGI's Cloud & DevOps Challenge: a high-availability
+Kubernetes platform, built entirely through code.
 
-There are two identical Kubernetes clusters, one in Azure West Europe and
-one in Germany West Central, provisioned with Terraform and configured
-with Ansible. A small web app runs on both, spread across multiple
-servers so losing one never takes it down. If a whole region fails,
-traffic moves to the other one automatically. Beyond what the challenge
-asks for, there are two extras: the same automation pattern applied to a
-Google Cloud server, and a GitOps pipeline so deployments happen by
-pushing to Git instead of running commands by hand.
+There are two identical Kubernetes clusters, one in Azure West Europe
+and one in Germany West Central, provisioned with Terraform and
+configured with Ansible. A small Hello World web app runs on both,
+spread across multiple servers, so losing one server never takes it
+down. If a whole region fails, traffic moves to the other region
+automatically.
+
+Beyond what the challenge asks for, there are two extras I call the
+Cherries:
+
+- A Google Cloud server, provisioned with the same automated
+  deployment (Terraform and Ansible).
+- A GitOps pipeline, using ArgoCD and GitHub (not GitHub Actions), so
+  deployments happen by pushing to Git instead of running commands by
+  hand.
 
 ![Full architecture diagram, showing GitHub as source of truth, ArgoCD managing both Azure regions, the GCP node running K3s and the failover proxy](docs/architecture.png)
 *Above: Green arrows are GitOps (ArgoCD pulling from Git). Blue is real traffic.
@@ -29,7 +35,7 @@ The diagram above shows what talks to what while the platform is
 which real file, and what that command hands off to the next stage.
 
 ```mermaid
-flowchart TD
+flowchart LR
     CMD0["bash scripts/bootstrap-tfstate.sh"] --> OUT0["Remote state storage created in Azure"]
 
     OUT0 --> CMD1["terraform apply, terraform/azure/"]
@@ -38,14 +44,14 @@ flowchart TD
 
     OUT0 --> CMD2["terraform apply, terraform/gcp/"]
     CMD2 --> TFGCP["main.tf"]
-    TFGCP --> OUT2["GCP showcase VM"]
+    TFGCP --> OUT2["GCP VM: showcase node, also hosts the failover proxy"]
 
-    OUT1 --> A1["ansible/inventory/hosts.yml"]
-    OUT2 --> A1
+    OUT1 -->|server IPs| A1["ansible/inventory/hosts.yml"]
+    OUT2 -->|server IP| A1
     CMD3["ansible-playbook"] --> A2["ansible/playbook.yml"]
-    A1 --> A2
+    A1 -->|IPs used to SSH into each node| A2
     A2 --> A3["roles: common, k3s-server, k3s-agent, proxy"]
-    A3 --> OUT3["K3s installed and joined; cert-manager and NGINX proxy installed"]
+    A3 --> OUT3["K3s joined on every node; cert-manager everywhere; failover proxy running on the GCP VM"]
 
     OUT3 --> CMD3b["bash scripts/kubeconfig-merge.sh"]
     CMD3b --> OUT3b["kubectl reachable from my laptop"]
@@ -74,11 +80,48 @@ step produces, feeding the next command. The last two branches, `k6` and
 the failover script, are live demos rather than one-time build steps.
 Both can be run again at any time against the already-built platform.*
 
+<details>
+<summary><strong>Step detail: terraform apply, terraform/gcp/</strong> (click to expand)</summary>
+
+**Command, run from `terraform/gcp/`:**
+```bash
+terraform apply
+```
+Uses the same remote state backend as the Azure side, just a different
+`key` (the filename within that same storage account), so no separate
+GCP-native backend was needed for one small VM.
+
+**What it provisions (8 resources):**
+- A dedicated VPC network and firewall rules (SSH, HTTP, the K3s API port)
+- A service account with Workload Identity, no downloaded key file
+- A static public IP
+- The `e2-micro` VM itself, in a genuinely Always Free region
+
+**The real IP this step produces:** `136.115.185.153`. That's the
+address `ansible/inventory/hosts.yml` records next, and the same
+address the failover proxy answers on later in this diagram.
+
+</details>
+
 ## The trade-offs behind this architecture
 
 Every major decision here came from a real constraint, not a preference.
 Worth stating plainly, up front:
 
+- **Terraform and Ansible, not Azure-native tooling (ARM templates,
+  Bicep) or hand-written scripts.** Portability, provable two different
+  ways in this repo. Terraform is portable at the tool level: the same
+  syntax and the same `plan`-then-`apply` workflow, just a different
+  provider block per cloud, which is why `terraform/azure/` and
+  `terraform/gcp/` exist side by side. Ansible is portable at the code
+  level, the stronger claim, because it only needs SSH: the `common` and
+  `k3s-server` roles run unmodified against the GCP node, with zero
+  GCP-specific code in either. `ansible/playbook.yml`'s first play
+  targets `hosts: all`, so one control machine and a single
+  `ansible-playbook` run configures every node across every cloud in
+  this project at once, in parallel, not one server at a time by hand.
+  Both tools are also open source, so the choice costs nothing beyond
+  the time to learn them.
 - **Self-managed K3s on plain VMs, not AKS (Azure's managed Kubernetes).**
   Requirement 8 was planned as a live demo: actually running `tcpdump`
   and inspecting firewall rules on a real node in front of the panel, not

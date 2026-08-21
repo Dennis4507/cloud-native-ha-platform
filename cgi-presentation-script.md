@@ -158,6 +158,24 @@ configure an operating system; Ansible doesn't know how to create a
 VNet. They operate at different layers, and splitting them matches how
 the actual work is split.
 
+**Why Terraform and Ansible specifically, if asked:** this is the same
+scaffold I've used on my own production projects before this challenge,
+so part of it is simply a pattern I trust. The real reason is
+portability, provable two different ways here. Terraform is portable at
+the tool level: same syntax, same `plan`-then-`apply` workflow, just a
+different provider block per cloud, exactly why `terraform/azure/` and
+`terraform/gcp/` exist side by side. Ansible is portable at the code
+level, the stronger claim, because it only needs SSH: the exact same
+`common` and `k3s-server` roles run unmodified against the GCP node,
+zero GCP-specific code anywhere in them. And because `playbook.yml`'s
+first play targets `hosts: all`, one control machine and one playbook
+run configures every node across every cloud in this project at once,
+in parallel, not one server at a time by hand. I think of that as the
+octopus effect: one control machine, many arms, all moving together.
+Both tools are also open source, so none of this costs anything beyond
+the time to learn them, which matters given the brief's own rule about
+spending money.
+
 ---
 
 ## Milestone 5 — Requirement 1, done
