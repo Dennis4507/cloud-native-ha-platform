@@ -31,54 +31,23 @@ shown as planned, not yet built.*
 ## The build pipeline: scaffold and commands together
 
 The diagram above shows what talks to what while the platform is
-*running*. This one shows how it gets *built*: which command triggers
-which real file, and what that command hands off to the next stage.
+*running*. The four below show how it gets *built*: which command
+triggers which real file, and what that command hands off to the next
+one. Split into phases, in build order, each one flowing left to right,
+rather than one long chain, so no single diagram outgrows the page.
+
+**Phase 1: provisioning the infrastructure**
 
 ```mermaid
 flowchart LR
     CMD0["bash scripts/bootstrap-tfstate.sh"] --> OUT0["Remote state storage created in Azure"]
-
     OUT0 --> CMD1["terraform apply, terraform/azure/"]
     CMD1 --> TFAZ["main.tf, outputs.tf"]
     TFAZ --> OUT1["2 VMSS and Load Balancers, both regions"]
-
     OUT0 --> CMD2["terraform apply, terraform/gcp/"]
     CMD2 --> TFGCP["main.tf"]
     TFGCP --> OUT2["GCP VM: showcase node, also hosts the failover proxy"]
-
-    OUT1 -->|server IPs| A1["ansible/inventory/hosts.yml"]
-    OUT2 -->|server IP| A1
-    CMD3["ansible-playbook"] --> A2["ansible/playbook.yml"]
-    A1 -->|IPs used to SSH into each node| A2
-    A2 --> A3["roles: common, k3s-server, k3s-agent, proxy"]
-    A3 --> OUT3["K3s joined on every node; cert-manager everywhere; failover proxy running on the GCP VM"]
-
-    OUT3 --> CMD3b["bash scripts/kubeconfig-merge.sh"]
-    CMD3b --> OUT3b["kubectl reachable from my laptop"]
-
-    OUT3b --> CMD4["kubectl apply, k8s/argocd/"]
-    CMD4 --> K1["ArgoCD Application manifests"]
-    K1 --> OUT4["ArgoCD watching this repo"]
-
-    CMD5["git push"] --> K2["k8s/apps/hello-world/"]
-    CMD5 --> K3["k8s/apps/monitoring/"]
-    OUT4 --> K2
-    OUT4 --> K3
-    K2 --> OUT5["Hello World live in both regions"]
-    K3 --> OUT5b["Uptime Kuma watching both regions and the proxy"]
-
-    OUT5 --> CMD6a["k6 run scripts/load-test.js"]
-    CMD6a --> OUT6a["HPA scales 2 to 6 pods live"]
-
-    OUT5 --> CMD6b["bash scripts/failover-demo.sh break"]
-    CMD6b --> OUT6b["Azure firewall rule blocks West Europe"]
-    OUT6b --> OUT7["NGINX proxy health check fails, routes to Germany West Central"]
 ```
-
-*Each command leads into the real file it touches, then into what that
-step produces, feeding the next command. The last two branches, `k6` and
-the failover script, are live demos rather than one-time build steps.
-Both can be run again at any time against the already-built platform.*
 
 <details>
 <summary><strong>Step detail: terraform apply, terraform/gcp/</strong> (click to expand)</summary>
@@ -99,9 +68,50 @@ GCP-native backend was needed for one small VM.
 
 **The real IP this step produces:** `136.115.185.153`. That's the
 address `ansible/inventory/hosts.yml` records next, and the same
-address the failover proxy answers on later in this diagram.
+address the failover proxy answers on later in Phase 2.
 
 </details>
+
+**Phase 2: installing Kubernetes**
+
+```mermaid
+flowchart LR
+    IN1["Both Azure regions' servers ready"] -->|server IPs| A1["ansible/inventory/hosts.yml"]
+    IN2["GCP VM ready"] -->|server IP| A1
+    CMD3["ansible-playbook"] --> A2["ansible/playbook.yml"]
+    A1 -->|IPs used to SSH into each node| A2
+    A2 --> A3["roles: common, k3s-server, k3s-agent, proxy"]
+    A3 --> OUT3["K3s joined on every node; cert-manager everywhere; failover proxy running on the GCP VM"]
+```
+
+**Phase 3: deploying through GitOps**
+
+```mermaid
+flowchart LR
+    IN3["K3s clusters ready"] --> CMD3b["bash scripts/kubeconfig-merge.sh"]
+    CMD3b --> OUT3b["kubectl reachable from my laptop"]
+    OUT3b --> CMD4["kubectl apply, k8s/argocd/"]
+    CMD4 --> K1["ArgoCD Application manifests"]
+    K1 --> OUT4["ArgoCD watching this repo"]
+    CMD5["git push"] --> K2["k8s/apps/hello-world/"]
+    CMD5 --> K3["k8s/apps/monitoring/"]
+    OUT4 --> K2
+    OUT4 --> K3
+    K2 --> OUT5["Hello World live in both regions"]
+    K3 --> OUT5b["Uptime Kuma watching both regions and the proxy"]
+```
+
+**Phase 4: the live demos** (not one-time build steps, both can be run
+again at any time against the already-built platform)
+
+```mermaid
+flowchart LR
+    IN4["Hello World live"] --> CMD6a["k6 run scripts/load-test.js"]
+    CMD6a --> OUT6a["HPA scales 2 to 6 pods live"]
+    IN4 --> CMD6b["bash scripts/failover-demo.sh break"]
+    CMD6b --> OUT6b["Azure firewall rule blocks West Europe"]
+    OUT6b --> OUT7["NGINX proxy health check fails, routes to Germany West Central"]
+```
 
 ## The trade-offs behind this architecture
 
