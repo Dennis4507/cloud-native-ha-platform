@@ -33,7 +33,6 @@ merged-kubeconfig.yaml
 /PLAN.md
 /CLAUDE.md
 /how-the-build-works.md
-/cgi-presentation-script.md
 
 # OS noise
 .DS_Store
