@@ -40,42 +40,29 @@ rather than one long chain, so no single diagram outgrows the page.
 
 ```mermaid
 flowchart LR
-    CMD0["bash scripts/bootstrap-tfstate.sh"] -->|creates Azure storage| OUT0["Remote state storage created in Azure"]
-    OUT0 -->|state backend ready| CMD1["terraform apply, terraform/azure/"]
-    CMD1 -->|defines resources in| TFAZ["main.tf, outputs.tf"]
-    TFAZ -->|provisions| OUT1["2 VMSS and Load Balancers, both regions"]
-    OUT0 -->|state backend ready| CMD2["terraform apply, terraform/gcp/"]
-    CMD2 -->|defines resources in| TFGCP["main.tf"]
-    TFGCP -->|provisions| OUT2["GCP VM: showcase node, also hosts the failover proxy"]
+    CMD0["bash scripts/bootstrap-tfstate.sh<br/>Remote state storage created in Azure"]
+    CMD0 -->|terraform/azure/: main.tf, outputs.tf| OUT1["terraform apply<br/>2 VMSS + Load Balancers, both regions"]
+    CMD0 -->|terraform/gcp/: main.tf| OUT2["terraform apply<br/>GCP VM: showcase node, also hosts the failover proxy"]
 ```
 
 **Phase 2: installing Kubernetes**
 
 ```mermaid
 flowchart LR
-    IN1["Both Azure regions' servers ready"] -->|server IPs recorded| A1["ansible/inventory/hosts.yml"]
-    IN2["GCP VM ready"] -->|server IP recorded| A1
-    CMD3["ansible-playbook"] -->|runs the roles in| A2["ansible/playbook.yml"]
-    A1 -->|IPs used to SSH into each node| A2
-    A2 -->|executes in order| A3["roles: common, k3s-server, k3s-agent, proxy"]
-    A3 -->|installs and joins K3s| OUT3["K3s ready everywhere; cert-manager and the failover proxy also installed"]
+    IN["Both Azure regions' servers + GCP VM ready"] -->|server IPs recorded in| A1["ansible/inventory/hosts.yml"]
+    A1 -->|IPs used to SSH into each node| A2["ansible-playbook<br/>runs playbook.yml roles: common, k3s-server, k3s-agent, proxy"]
+    A2 -->|installs and joins K3s| OUT3["K3s ready everywhere<br/>cert-manager and the failover proxy also installed"]
 ```
 
 **Phase 3: deploying through GitOps**
 
 ```mermaid
 flowchart LR
-    IN3["K3s clusters ready"] -->|fetches each kubeconfig| CMD3b["bash scripts/kubeconfig-merge.sh"]
-    CMD3b -->|merges into one file| OUT3b["kubectl reachable from my laptop"]
-    OUT3b -->|installs ArgoCD itself| CMD4["kubectl apply, k8s/argocd/"]
-    CMD4 -->|creates| K1["ArgoCD Application manifests"]
-    K1 -->|tells ArgoCD to watch| OUT4["ArgoCD watching this repo"]
-    CMD5["git push"] -->|updates| K2["k8s/apps/hello-world/"]
-    CMD5 -->|updates| K3["k8s/apps/monitoring/"]
-    OUT4 -->|syncs changes into| K2
-    OUT4 -->|syncs changes into| K3
-    K2 -->|deploys| OUT5["Hello World live in both regions"]
-    K3 -->|deploys| OUT5b["Uptime Kuma watching both regions and the proxy"]
+    IN3["K3s clusters ready"] -->|fetches + merges kubeconfigs| OUT3b["bash scripts/kubeconfig-merge.sh<br/>kubectl reachable from my laptop"]
+    OUT3b -->|installs ArgoCD, creates| CMD4["kubectl apply, k8s/argocd/<br/>ArgoCD Application manifests"]
+    CMD4 -->|ArgoCD now watches| OUT4["This repo:<br/>k8s/apps/hello-world/, k8s/apps/monitoring/"]
+    CMD5["git push"] -->|triggers a sync of| OUT4
+    OUT4 -->|deploys both| OUT5["Hello World live in both regions<br/>Uptime Kuma watching both regions and the proxy"]
 ```
 
 **Phase 4: the live demos** (not one-time build steps, both can be run
@@ -83,11 +70,9 @@ again at any time against the already-built platform)
 
 ```mermaid
 flowchart LR
-    IN4["Hello World live"] -->|drives real load against it| CMD6a["k6 run scripts/load-test.js"]
-    CMD6a -->|CPU crosses the HPA target| OUT6a["HPA scales 2 to 6 pods live"]
-    IN4 -->|simulates a regional failure| CMD6b["bash scripts/failover-demo.sh break"]
-    CMD6b -->|adds an NSG rule blocking| OUT6b["Azure firewall rule blocks West Europe"]
-    OUT6b -->|health check fails, proxy reroutes| OUT7["Traffic now reroutes to Germany West Central"]
+    IN4["Hello World live"] -->|drives real load against it| CMD6a["k6 run scripts/load-test.js<br/>HPA scales 2 to 6 pods live"]
+    IN4 -->|simulates a regional failure| CMD6b["bash scripts/failover-demo.sh break<br/>NSG rule blocks West Europe"]
+    CMD6b -->|health check fails, proxy reroutes| OUT7["Traffic now reroutes to Germany West Central"]
 ```
 
 ## The trade-offs behind this architecture
