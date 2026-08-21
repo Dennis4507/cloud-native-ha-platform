@@ -1,14 +1,14 @@
 # The original CGI brief, verbatim
 
-This is the actual wording from CGI's own challenge document — *"Cloud &
+This is the actual wording from CGI's own challenge document, *"Cloud &
 DevOps Challenge"*, an 8-slide PDF CGI sent directly, not a summary or a
 paraphrase. It's here so that any claim made anywhere else in this repo can
 be checked in one click against exactly what was asked, rather than taken
 on trust.
 
 Every quote below is copied as written. The only changes are spacing fixes
-where the PDF's own text extraction glued words together (e.g. "asa" →
-"as a") — never a change in meaning or wording.
+where the PDF's own text extraction glued words together (e.g. "asa" became
+"as a"), never a change in meaning or wording.
 
 ---
 
@@ -18,14 +18,14 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 
 - **Timeframe:** up to 4 days. The clock starts the moment the slide deck
   is received.
-- **Research:** "Using the Internet for research is explicitly allowed —
+- **Research:** "Using the Internet for research is explicitly allowed –
   copying an entire solution is what script kiddies do."
 - **Tooling:** "Use whatever technology or tool you are most comfortable
   with (e.g. Ansible, Bash, Python, Terraform, PowerShell or any kind of
   automation tool)."
 - **Cloud:** "Azure can be used. If you need an Azure sandbox, please
   contact us."
-- **Cost — the literal rule:** "Have fun, and please don't spend any
+- **Cost, the literal rule:** "Have fun, and please don't spend any
   money on infrastructure services, domains, or certificates."
 - **Deliverable:** "Share git repo or any kind of code. Please prepare a
   short presentation and demo," presented live over MS Teams to Kevin
@@ -36,7 +36,7 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 ---
 
 <a id="requirement-1"></a>
-## Requirement 1 — Kubernetes cluster
+## Requirement 1: Kubernetes cluster
 
 > "Deploy a K8s cluster. The cluster can be deployed on-premises as a
 > standalone solution using any provisioner (e.g. Rancher, k3s, kind,
@@ -51,7 +51,7 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 ---
 
 <a id="requirement-2"></a>
-## Requirement 2 — "Hello World" container
+## Requirement 2: "Hello World" container
 
 > "A container with any webserver technology should be deployed to the
 > cluster. The webserver should be accessible through the challengers'
@@ -62,7 +62,7 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 ---
 
 <a id="requirement-3"></a>
-## Requirement 3 — Autoscaling & traffic routing
+## Requirement 3: Autoscaling & traffic routing
 
 > "The container should be deployed on multiple nodes, with traffic being
 > distributed to the instances according to the round-robin principle. The
@@ -73,7 +73,7 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 ---
 
 <a id="requirement-4"></a>
-## Requirement 4 — Ingress controller
+## Requirement 4: Ingress controller
 
 > "The container should be served via an ingress-controller that
 > terminates TLS and returns a valid certificate (self-signed or signed by
@@ -84,7 +84,7 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 ---
 
 <a id="requirement-5"></a>
-## Requirement 5 — High-available K8s cluster
+## Requirement 5: High-available K8s cluster
 
 > "Design a high available scenario for a K8s cluster based on a
 > multi-region approach. Traffic routing should be simulated with a
@@ -96,14 +96,14 @@ where the PDF's own text extraction glued words together (e.g. "asa" →
 ---
 
 <a id="requirement-6"></a>
-## Requirement 6 — Monitoring concept
+## Requirement 6: Monitoring concept
 
 > "Describe in high-level terms how you intend to assess the availability
 > of the relevant service endpoints of your solution and which
 > cloud-native approach might be appropriate."
 
 Note the brief's own wording: this asks for a description, not a specific
-tool. It doesn't name Prometheus, Grafana, or any other product — "which
+tool. It doesn't name Prometheus, Grafana, or any other product. "Which
 cloud-native approach might be appropriate" is left open.
 
 **Answered by:** [requirement-6-monitoring-concept.md](requirement-6-monitoring-concept.md)
@@ -111,7 +111,7 @@ cloud-native approach might be appropriate" is left open.
 ---
 
 <a id="requirement-7"></a>
-## Requirement 7 — Backup & Recovery concept
+## Requirement 7: Backup & Recovery concept
 
 > "Describe in broad strokes how you handle a scenario with two options.
 > Zero-down time and a maximum MTTR of 4 hours."
@@ -121,7 +121,7 @@ cloud-native approach might be appropriate" is left open.
 ---
 
 <a id="requirement-8"></a>
-## Requirement 8 — Infrastructure Debugging
+## Requirement 8: Infrastructure Debugging
 
 > "Let's assume one of your AKS nodes experiences DNS hiccups. Find a way
 > to debug and analyze the network packets on the node. Explain why you
