@@ -83,7 +83,7 @@ flowchart LR
     CMD3["ansible-playbook"] -->|runs the roles in| A2["ansible/playbook.yml"]
     A1 -->|IPs used to SSH into each node| A2
     A2 -->|executes in order| A3["roles: common, k3s-server, k3s-agent, proxy"]
-    A3 -->|installs and joins K3s| OUT3["K3s joined on every node; cert-manager everywhere; failover proxy running on the GCP VM"]
+    A3 -->|installs and joins K3s| OUT3["K3s ready everywhere; cert-manager and the failover proxy also installed"]
 ```
 
 **Phase 3: deploying through GitOps**
@@ -114,7 +114,7 @@ flowchart LR
     CMD6a -->|CPU crosses the HPA target| OUT6a["HPA scales 2 to 6 pods live"]
     IN4 -->|simulates a regional failure| CMD6b["bash scripts/failover-demo.sh break"]
     CMD6b -->|adds an NSG rule blocking| OUT6b["Azure firewall rule blocks West Europe"]
-    OUT6b -->|health check fails, proxy reroutes| OUT7["NGINX proxy health check fails, routes to Germany West Central"]
+    OUT6b -->|health check fails, proxy reroutes| OUT7["Traffic now reroutes to Germany West Central"]
 ```
 
 ## The trade-offs behind this architecture
