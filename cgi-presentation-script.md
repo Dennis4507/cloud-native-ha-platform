@@ -61,10 +61,14 @@ size, but a mainstream one with no capacity restriction, confirmed
 working in both regions.
 
 **Evidence:**
-- `docs/screenshots/13-ephemeral-disk-error.png` — the ephemeral disk rejection
-- `docs/screenshots/14-ephemeral-disk-code-fix.png` — the four-line fix
-- `docs/screenshots/15-sku-not-available-error.png` — both regions rejecting `B2s` at once
-- `docs/screenshots/17-d2sv3-confirmed-germany-west.png` — `D2s_v3` confirmed working
+
+![The ephemeral disk rejection](docs/screenshots/13-ephemeral-disk-error.png)
+
+![The four-line fix](docs/screenshots/14-ephemeral-disk-code-fix.png)
+
+![Both regions rejecting B2s at once](docs/screenshots/15-sku-not-available-error.png)
+
+![D2s_v3 confirmed working](docs/screenshots/17-d2sv3-confirmed-germany-west.png)
 
 ---
 
@@ -80,8 +84,9 @@ no permission to grant access to itself or anyone else. Every command
 from this point on runs as that identity, not the admin account.
 
 **Evidence:**
-- `docs/screenshots/02-entra-sandbox-identity.png` — the two identities side by side, admin vs. sandbox
-- `docs/screenshots/04-sandbox-own-view.png` — signed in as the sandbox identity: this is the whole world it can see
+![The two identities side by side, admin vs. sandbox](docs/screenshots/02-entra-sandbox-identity.png)
+
+![Signed in as the sandbox identity - this is the whole world it can see](docs/screenshots/04-sandbox-own-view.png)
 
 ---
 
@@ -125,7 +130,11 @@ duplicate rather than manage the real one.
 **Fix:** `terraform import`, bringing the existing resource group under
 Terraform's management instead of recreating it.
 
-**Evidence:** `docs/screenshots/11-*` / `12-import-successful.png`
+**Evidence:**
+
+![The resource group conflict](docs/screenshots/11-apply-rg-conflict.png)
+
+![The fix - terraform import, bringing the existing resource group under management](docs/screenshots/12-import-successful.png)
 
 ---
 
@@ -359,7 +368,9 @@ search at each layer instead of guessing. Real `tcpdump` capture, a real
 firewall rule found and removed, real automatic recovery via `kubelet`'s
 own retry.
 
-**Show (if time allows):** `docs/screenshots/90-tcpdump-real-dns-capture.png`
+**Show (if time allows):**
+
+![Real tcpdump capture - queries out, replies in, from the actual node](docs/screenshots/90-tcpdump-real-dns-capture.png)
 
 **Written answer:** `requirement-8-dns-debug-runbook.md`
 
@@ -376,8 +387,11 @@ per hour than `B2s` would have ($0.12 vs. $0.048, checked against Azure's
 live retail pricing) — the real cost of a genuine capacity limit, not a
 design choice.
 
-**Evidence:** `docs/screenshots/88-gcp-zero-cost-confirmed.png`,
-`docs/screenshots/89-azure-cost-breakdown.png`
+**Evidence:**
+
+![GCP billing confirmed at a real €0.00](docs/screenshots/88-gcp-zero-cost-confirmed.png)
+
+![Azure's real cost, itemized](docs/screenshots/89-azure-cost-breakdown.png)
 
 ---
 
