@@ -94,6 +94,7 @@ flowchart LR
     PROXY(["roles/proxy/tasks/main.yml"]) -->|tells| CMD3
     CMD3 -->|produces| OUT3A["K3s is joined on every node"]
     CMD3 -->|produces| OUT3B["The failover proxy is installed on the GCP VM"]
+    CMD3 -->|produces| OUT3C["3 raw kubeconfig files fetched to my laptop"]
 ```
 
 `ansible/inventory/hosts.yml` is where Phase 1's public IP addresses
@@ -105,7 +106,7 @@ separate step in Phase 3 below.
 
 ```mermaid
 flowchart LR
-    IN3["K3s clusters are ready"] -->|needed first| CMD3B[["Run: bash kubeconfig-merge.sh"]]
+    IN3["3 raw kubeconfig files, fetched by Phase 2"] -->|needed first| CMD3B[["Run: bash kubeconfig-merge.sh"]]
     F3B(["scripts/kubeconfig-merge.sh"]) -->|tells| CMD3B
     CMD3B -->|produces| OUT3B["kubectl is reachable from my laptop"]
 
