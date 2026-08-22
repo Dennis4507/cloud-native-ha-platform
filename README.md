@@ -37,8 +37,6 @@ uses the same three shapes for the same three kinds of thing, and the
 same three arrow meanings, so once you've read the key once, every
 diagram after it reads the same way.
 
-**The key, used in every diagram below:**
-
 ```mermaid
 flowchart LR
     L1(["A file already in the repo"]) -->|tells| L2[["A command I run, one or more steps"]]
@@ -73,29 +71,33 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    IN1["Both Azure regions' servers are ready"] --> A1["ansible/inventory/hosts.yml records their IPs"]
-    IN2["The GCP VM is ready"] --> A1
-    CMD3["Command: ansible-playbook"] --> A2["Reads ansible/playbook.yml"]
-    A1 -->|IPs used to SSH into each node| A2
-    A2 --> A3["Runs roles in order: common, k3s-server, k3s-agent, proxy"]
-    A3 --> OUT3["K3s is joined on every node; cert-manager and the failover proxy are also installed"]
+    HOSTS(["ansible/inventory/hosts.yml"]) -->|tells| CMD3[["Run: ansible-playbook<br/>roles: common, k3s-server,<br/>k3s-agent, proxy"]]
+    PLAY(["ansible/playbook.yml"]) -->|tells| CMD3
+    CMD3 -->|produces| OUT3A["K3s is joined on every node"]
+    CMD3 -->|produces| OUT3B["cert-manager is installed everywhere"]
+    CMD3 -->|produces| OUT3C["The failover proxy is installed on the GCP VM"]
 ```
+
+`ansible/inventory/hosts.yml` is where Phase 1's public IP addresses
+actually land, hand-recorded against the right machine.
 
 **Phase 3: deploying through GitOps**
 
 ```mermaid
 flowchart LR
-    IN3["Both K3s clusters are ready"] --> CMD3b["Bash script: kubeconfig-merge.sh"]
-    CMD3b --> OUT3b["kubectl is now reachable from my laptop"]
-    OUT3b --> CMD4["kubectl apply: k8s/argocd/"]
-    CMD4 --> K1["Creates the ArgoCD Application manifests"]
-    K1 --> OUT4["ArgoCD now watches this repo"]
-    CMD5["Command: git push"] --> K2["Updates k8s/apps/hello-world/"]
-    CMD5 --> K3["Updates k8s/apps/monitoring/"]
-    OUT4 -->|syncs changes into| K2
-    OUT4 -->|syncs changes into| K3
-    K2 --> OUT5["Hello World is live in both regions"]
-    K3 --> OUT5b["Uptime Kuma watches both regions and the proxy"]
+    IN3["K3s clusters are ready"] -->|needed first| CMD3B[["Run: bash kubeconfig-merge.sh"]]
+    F3B(["scripts/kubeconfig-merge.sh"]) -->|tells| CMD3B
+    CMD3B -->|produces| OUT3B["kubectl is reachable from my laptop"]
+
+    OUT3B -->|needed first| CMD4[["Run: kubectl apply, k8s/argocd/"]]
+    F4(["k8s/argocd/ manifests"]) -->|tells| CMD4
+    CMD4 -->|produces| OUT4["ArgoCD is running and watches this repo"]
+
+    F5A(["k8s/apps/hello-world/"]) -->|tells| CMD5[["Run: git push"]]
+    F5B(["k8s/apps/monitoring/"]) -->|tells| CMD5
+    OUT4 -->|needed first| CMD5
+    CMD5 -->|produces| OUT5A["Hello World is live in both regions"]
+    CMD5 -->|produces| OUT5B["Uptime Kuma watches both regions and the proxy"]
 ```
 
 **Phase 4: the live demos** (not one-time build steps, both can be run
@@ -103,11 +105,13 @@ again at any time against the already-built platform)
 
 ```mermaid
 flowchart LR
-    IN4["Hello World is live"] --> CMD6a["Command: k6 run scripts/load-test.js"]
-    CMD6a --> OUT6a["HPA scales from 2 to 6 pods live"]
-    IN4 --> CMD6b["Bash script: failover-demo.sh break"]
-    CMD6b --> OUT6b["An NSG rule now blocks West Europe"]
-    OUT6b -->|health check fails, proxy reroutes| OUT7["Traffic now reroutes to Germany West Central"]
+    IN4["Hello World is live"] -->|needed first| CMD6A[["Run: k6 run scripts/load-test.js"]]
+    F6A(["scripts/load-test.js"]) -->|tells| CMD6A
+    CMD6A -->|produces| OUT6A["HPA scales from 2 to 6 pods live"]
+
+    IN4 -->|needed first| CMD6B[["Run: bash failover-demo.sh break"]]
+    F6B(["scripts/failover-demo.sh"]) -->|tells| CMD6B
+    CMD6B -->|produces| OUT6B["An NSG rule blocks West Europe; the proxy reroutes traffic to Germany West Central"]
 ```
 
 ## The trade-offs behind this architecture
