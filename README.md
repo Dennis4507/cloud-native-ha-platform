@@ -102,6 +102,12 @@ actually land, hand-recorded against the right machine. cert-manager
 isn't installed here, it's not part of any Ansible role, it's a
 separate step in Phase 3 below.
 
+Two more real files live inside the proxy role, not shown as their own
+boxes since they're internal to `roles/proxy/tasks/main.yml`, already
+in the diagram above: **`templates/nginx.conf.j2`** is the actual NGINX
+config that task deploys, and **`handlers/main.yml`** is what reloads
+NGINX afterward, triggered by that same task's own `notify`.
+
 **Phase 3: deploying through GitOps**
 
 ```mermaid
