@@ -71,15 +71,13 @@ flowchart LR
     CMD2 -->|produces| OUT2IP["Public IP, for Ansible to SSH in"]
 ```
 
-Three more files exist under `terraform/` but aren't in the diagram, they're
-not something anyone wrote by hand:
+Three more files exist under `terraform/` but aren't in the diagram, they were not writen by hand:
 
-- **`.terraform.lock.hcl`**: written automatically after running `terraform init`.
+- **`.terraform.lock.hcl`**: gets written automatically after running `terraform init`. It
   Records the exact AzureRM provider version that got downloaded from the Terraform Registry eg (`3.117.1`) plus a set of cryptographic hashes that confirm that exact download hasn't been tampered with.
 - **`backend-config.hcl`**: Contains the environment-specific details telling Terraform where the remote state is stored. this file contains resource_group_name  = "rg-tfstate", storage_account_name = "stcnhptfstate6e2d"
 container_name = "tfstate" & key = "azure.tfstate" needed during Terraform init 
 We Gitignore this file because these values are specific to our Azure environment/subscription
-
 - **`.terraform/`**: Terraform's local working directory, created by terraform init. It contains locally downloaded provider binaries/modules and Terraform's initialized backend metadata. For example, this is where Terraform keeps the downloaded AzureRM provider that it needs to communicate with Azure. (the real `azurerm` or `google` program itself), so it doesn't need to download it again on the next run.
 
 **Phase 2: installing Kubernetes**
@@ -97,28 +95,28 @@ flowchart LR
     CMD3 -->|produces| OUT3C["3 raw kubeconfig files fetched to my laptop"]
 ```
 
-`ansible/inventory/hosts.yml` is where Phase 1's public IP addresses
-actually land, hand-recorded against the right machine. cert-manager
-isn't installed here, it's not part of any Ansible role, it's a
-separate step in Phase 3 below.
+`ansible/inventory/hosts.yml:` Connects Phase 1 (Terraform) to Phase 2 (Ansible). After Terraform creates the VMs, their public IP addresses are added here so Ansible knows which machines to connect to and what role each machine has.
 
-Two more real files live inside the proxy role, not shown as their own
-boxes since they're internal to `roles/proxy/tasks/main.yml`, already
-in the diagram above: **`templates/nginx.conf.j2`** is the actual NGINX
-config that task deploys, and **`handlers/main.yml`** is what reloads
-NGINX afterward, triggered by that same task's own `notify`.
+**Note:** cert-manager is not installed by Ansible. It is installed separately later in Phase 3 as part of the Kubernetes/GitOps setup.
+
+Two supporting files sit inside the proxy Ansible role. They aren't shown separately in the diagram because they're used internally by roles/proxy/tasks/main.yml:
+
+- `templates/nginx.conf.j2` — the NGINX configuration template. Ansible fills it with the correct regional IP addresses and deploys it to the proxy server.
+- `handlers/main.yml` — reloads NGINX when that configuration changes. The task triggers it automatically using notify.
+
+Simply put: main.yml installs/configures the proxy → nginx.conf.j2 defines how traffic should be routed → the handlers/main.yml reloads NGINX to apply the change.
 
 **Phase 3: deploying through GitOps**
 
 ```mermaid
 flowchart LR
-    IN3["3 raw kubeconfig files, fetched by Phase 2"] -->|needed first| CMD3B[["Run: bash kubeconfig-merge.sh"]]
+    IN3["The 3 raw kubeconfig files, produced by Phase 2"] -->|needed first| CMD3B[["Run: bash kubeconfig-merge.sh"]]
     F3B(["scripts/kubeconfig-merge.sh"]) -->|tells| CMD3B
-    CMD3B -->|produces| OUT3B["kubectl is reachable from my laptop"]
+    CMD3B -->|produces req1| OUT3B["kubectl is reachable from my laptop"]
 
     OUT3B -->|needed first| CMD4[["Run: kubectl apply, k8s/argocd/"]]
-    F4(["k8s/argocd/: 3 Application files,<br/>one per region plus monitoring"]) -->|tells| CMD4
-    CMD4 -->|produces| OUT4["ArgoCD is running and watches this repo"]
+    F4(["k8s/argocd/: 3 Application files,<br/>one per region plus uptimekuma 4 monitoring"]) -->|installs and tells| CMD4
+    CMD4 -->|produces| OUT4["ArgoCD now runs and watches the Github repo we set up"]
 
     OUT3B -->|needed first| CMDCM[["Run: kubectl apply<br/>cert-manager's official installer"]]
     CMDCM -->|produces| OUTCM["cert-manager is running on both clusters"]
@@ -127,39 +125,37 @@ flowchart LR
     F5B(["k8s/apps/monitoring/"]) -->|tells| CMD5
     OUT4 -->|needed first| CMD5
     OUTCM -->|needed first| CMD5
-    CMD5 -->|produces| OUT5A["Hello World is live in both regions"]
-    CMD5 -->|produces| OUT5B["Uptime Kuma watches both regions and the proxy"]
+    CMD5 -->|produces| OUT5A["Hello World App is live in both Azure regions"]
+    CMD5 -->|produces| OUT5B["Setup Uptime Kuma to watch both Azure regions & the GCP hosted proxy"]
 ```
 
-`k8s/apps/hello-world/` and `k8s/apps/monitoring/` are folder-level boxes
-here, they're each built from several individual files. Phase 5 below
-opens up what's actually inside both.
+k8s/apps/hello-world/ — contains the Kubernetes YAML files that define how the Hello World application runs: its pods, Service, autoscaling, HTTPS/Ingress, and related configuration.
+k8s/apps/monitoring/ — contains the Kubernetes YAML files that define how Uptime Kuma monitoring runs and how it is exposed.
 
-**Phase 4: the live demos** (not one-time build steps, both can be run
-again at any time against the already-built platform)
+They are shown as single folders here to keep the diagram manageable. In Phase 5 We will expands both folders and explains the individual Kubernetes files inside them.
+
+**Phase 4: Live Test & Demo — Proving Requirements 3 & 5**
+
+These are repeatable live tests against the already-running platform. Nothing new is being built here — we deliberately create load and failure conditions to prove the platform behaves as designed.
 
 ```mermaid
 flowchart LR
-    IN4["Hello World is live"] -->|needed first| CMD6A[["Run: k6 run scripts/load-test.js"]]
-    F6A(["scripts/load-test.js"]) -->|tells| CMD6A
-    CMD6A -->|produces| OUT6A["HPA scales from 2 to 6 pods live"]
+    APP["Hello World running"] -->|needed first| LOAD[["Run k6 load test"]]
+    LOADFILE(["scripts/load-test.js"]) -->|tells| LOAD
+    LOAD -->|produces| SCALE["Requirement 3 proof:<br/>HPA scales 2 → 6 pods<br/>under CPU load"]
 
-    IN4 -->|needed first| CMD6B[["Run: bash failover-demo.sh break"]]
-    F6B(["scripts/failover-demo.sh"]) -->|tells| CMD6B
-    CMD6B -->|produces| OUT6B["An NSG rule blocks West Europe; the proxy reroutes traffic to Germany West Central"]
+    APP -->|needed first| FAIL[["Run failover demo"]]
+    FAILFILE(["scripts/failover-demo.sh"]) -->|tells| FAIL
+    FAIL -->|produces| REGION["Requirement 5 proof:<br/>West Europe is blocked<br/>Traffic automatically reroutes to Germany"]
 ```
 
-**Phase 5: what's inside the app manifests**
+**Phase 5: what's inside the app manifests (what ArgoCD deploys)**
 
-Phases 1 through 4 are all commands I actually type. This phase is
-different, none of these files get run, ArgoCD reads them
-declaratively through Kustomize. So the arrows here don't say `tells`,
-they name the real Kubernetes resource connecting one file to the
-next, a ConfigMap, a Secret, a label selector, confirmed by grepping
-the actual name across both files, not assumed from filenames.
+Phases 1–4 showed commands I run directly. Phase 5 is different: I don't run these Kubernetes files one by one. They describe how the application should run, and ArgoCD uses Kustomize to deploy and keep that configuration in sync automatically.
 
-*Hello World, shown for West Europe, the germany-west overlay mirrors
-this exactly, same 4 files, its own ConfigMap and Certificate:*
+You don't need to follow every file in the diagram. The main flow is:
+
+ConfigMaps provide configuration → Deployment runs the pods → Service sends traffic to them → HPA scales them → Ingress exposes them → Certificate provides HTTPS → Kustomize brings everything together for ArgoCD.
 
 ```mermaid
 flowchart LR
@@ -170,8 +166,8 @@ flowchart LR
     DEPLOY -->|scale target of| HPA(["base/hpa.yaml"])
     SVC -->|routed to by| ING(["base/ingress.yaml"])
     ISSUER(["base/cluster-issuer.yaml"]) -->|signs cert for| CERT(["overlays/west-eu/certificate.yaml"])
-    CERT -->|provides Secret:<br/>hello-world-tls| ING
-    CERT -->|provides Secret:<br/>hello-world-tls| TLSSTORE(["overlays/west-eu/tls-store.yaml"])
+    CERT -->|provides Secret:<br/>hello-world-tls req4| ING
+    CERT -->|provides Secret:<br/>hello-world-tls req4| TLSSTORE(["overlays/west-eu/tls-store.yaml"])
     ING -->|tells| KUST(["overlays/west-eu/kustomization.yaml"])
     HPA -->|tells| KUST
     TLSSTORE -->|tells| KUST
@@ -179,7 +175,7 @@ flowchart LR
     CMD -->|produces| RESULT["Hello World is live in West Europe"]
 ```
 
-*Monitoring, the same idea, far fewer moving parts:*
+*Monitoring uptimekuma & K6, use the same principle, far fewer moving parts:*
 
 ```mermaid
 flowchart LR
@@ -190,77 +186,42 @@ flowchart LR
     KUST2 -->|tells| CMD2[["ArgoCD builds automatically:<br/>kustomize build"]]
     CMD2 -->|produces| RESULT2["Uptime Kuma watches both regions and the proxy"]
 ```
+That completes the Kubernetes/GitOps side of the platform. The two diagrams show how the individual Kubernetes files work together, but the main takeaway is simple: ArgoCD and Kustomize turn these manifests into the running platform automatically.
 
-Both diagrams end exactly where Phase 3 starts using their result,
-`RESULT` here is the same "Hello World is live in both regions" and
-`RESULT2` the same "Uptime Kuma watches both regions and the proxy"
-that Phase 3's `git push` step produces. Every file under
-`k8s/apps/hello-world/` and `k8s/apps/monitoring/` is now accounted
-for somewhere in this repo's diagrams.
+The end result is Hello World running and scalable in both Azure regions, with Uptime Kuma monitoring both regions and the failover proxy. These are the same running components used in the live load and failover demonstrations.
 
-## The trade-offs behind this architecture
+Every file under k8s/apps/hello-world/ and k8s/apps/monitoring/ is represented here, so anyone interested in the implementation can follow the diagrams and trace exactly how the pieces connect.
 
-Every major decision here came from a real constraint, not a preference.
-Worth stating plainly, up front:
+## My Whys — Why I Built It This Way
 
-- **Terraform and Ansible, not Azure-native tooling (ARM templates,
-  Bicep) or hand-written scripts.** Portability, provable two different
-  ways in this repo. Terraform is portable at the tool level: the same
-  syntax and the same `plan`-then-`apply` workflow, just a different
-  provider block per cloud, which is why `terraform/azure/` and
-  `terraform/gcp/` exist side by side. Ansible is portable at the code
-  level, the stronger claim, because it only needs SSH: the `common` and
-  `k3s-server` roles run unmodified against the GCP node, with zero
-  GCP-specific code in either. `ansible/playbook.yml`'s first play
-  targets `hosts: all`, so one control machine and a single
-  `ansible-playbook` run configures every node across every cloud in
-  this project at once, in parallel, not one server at a time by hand.
-  Both tools are also open source, so the choice costs nothing beyond
-  the time to learn them.
-- **Self-managed K3s on plain VMs, not AKS (Azure's managed Kubernetes).**
-  Requirement 8 was planned as a live demo: actually running `tcpdump`
-  and inspecting firewall rules on a real node in front of the panel, not
-  just describing it. AKS worker nodes don't get a public IP by default,
-  so there's no direct network path to SSH into one. Reaching one
-  normally needs a bastion host, a VPN, or Microsoft's own `kubectl debug
-  node` command instead of a plain SSH session. A plain VM gives that
-  access directly, with no extra infrastructure to set up mid-demo.
-- **A self-hosted NGINX proxy, not Azure Traffic Manager.** Traffic
-  Manager isn't free. It has a base monthly cost plus per-query charges,
-  for as long as it exists. The brief's own rule is zero money spent on
-  infrastructure, and it explicitly names a self-hosted proxy as an
-  equally valid option to a managed traffic-routing service.
-- **`Standard_D2s_v3` VMs, not the cheaper `Standard_B2s`.** Not a
-  choice: `B2s` had zero available capacity on this subscription,
-  confirmed directly against Azure's own SKU catalog. `D2s_v3` costs
-  2.5x more per hour, verified against Azure's real pricing, and it's
-  the reason Azure isn't quite at zero cost the way GCP is.
-- **Self-signed certificates, not a public CA.** The brief explicitly
-  accepts either, and a public certificate would need a real registered
-  domain, which the brief's own "no domain" rule rules out entirely.
-- **One GCP VM as a separate showcase, not part of the graded failover
-  path.** Keeps the one component outside Azure isolated from the actual
-  HA (High Availability) demo, so a problem with it can never break
-  Requirement 5's live proof.
-
-Full detail on each of these, including the real incidents that forced
-some of them, lives in the requirement pages linked below.
+- **Why Terraform? Portability without starting from scratch.**
+  I already have a reusable Terraform scaffold from previous projects. The provider may change between Azure, GCP or another platform, but the workflow stays familiar: init → plan → apply. This portability has made it easier for me to move infrastructure between hyperscalers, PaaS and self-managed environments when business needs or costs change. (Kept me Cloud Agnostic) and i can claim proficiency provisioning infra in cloud and baremetal its also a professional choice.
+- **Why Ansible? → Repeatable configuration across clouds.**
+  Terraform builds the infrastructure; Ansible configures what runs on it. My Ansible roles only care about Linux + SSH, not which cloud owns the VM. The same common and k3s-server roles used for Azure can therefore configure the GCP node without being rewritten.
+  Terraform gives me infrastructure portability; Ansible gives me configuration portability.
+- **Why K3s instead of AKS? → Direct node access.**
+  Requirement 8 required node-level DNS/network troubleshooting. With K3s on ordinary VMs, I can SSH directly into a node (4 live demo) & ability to tools such as tcpdump to see tcp Packets, ip, ss, iptables and journalctl. AKS would have introduced a couple of more processes trying to reduce operational overhead, but here that abstraction would work against what I wanted to demonstrate, and i am not accustomed with AKS given myoptions above. sticking to scope of the busines and where u make the largest impact given the vaast nature of Cloud Computing.and For this challenge, seeing underneath Kubernetes was more valuable.
+- **Why NGINX instead of Azure Traffic Manager? → Visible, low-cost failover.**
+  Traffic Manager is a managed, metered Azure service. NGINX gives me the functionality this project actually needs — health-check both regions, detect a failure and reroute traffic — without adding another paid service. It also makes the failover mechanism completely visible during the live demo.
+  Same requirement, less cost, and easier to demonstrate.
+- **Why Uptime Kuma + k6 instead of Prometheus + Grafana? → Right-sized observability.**
+  Prometheus and Grafana would be straightforward to add, but they would consume additional CPU, memory and storage on nodes where I was deliberately trying to maintain a very small, low-cost footprint. specially for this challenge where i was instructed not to use my Money, Uptime Kuma gives me the availability/response monitoring I need, while k6 generates & measures the load used to demonstrate scaling. I chose the smallest observability stack that could convincingly prove the requirements and coz i wanted to do a live demo, prometheus and grafana would have been resource intensive.
+- **Why Standard_D2s_v3 instead of cheaper B2s VMs? → Actual regional capacity.**
+  B2s was my preferred cheaper option, but Azure reported no available capacity for this subscription/region. D2s_v3 therefore wasn't an architectural preference; it was the practical fallback. The cheapest SKU on the pricing page doesn't help if the cloud can't actually provision it.
+- **Why self-signed TLS instead of a public CA? → Meet the requirement without unnecessary dependencies.**
+  The requirement was to demonstrate HTTPS/TLS and explicitly allowed self-signed certificates.
+  A publicly trusted certificate would introduce a domain and external dependency that wasn't necessary for the challenge. I added what the requirement needed, not infrastructure simply for the sake of having it.
+- **Why GCP separately? → Prove portability without risking the core demo.**
+  The Azure environment proves the actual multi-region High Availablity requirements. GCP answers a different question: "How much of my automation survives if I change cloud providers?" Terraform can changes providers, while the same Ansible roles continue to work. Keeping GCP outside the HA path also means an experimental multi-cloud component can never break the graded Azure failover demonstration. and also sticking with the Job title GCP Engineer
 
 ## Map: jump straight to what you need
 
 **Checking a claim against CGI's actual wording?** [CGI-Challenge-Brief.md](CGI-Challenge-Brief.md)
-has the original brief, requirement by requirement, exactly as CGI sent
+contains the original brief, requirement by requirement, exactly as CGI sent
 it. Every page below links straight to its own section of it.
+  **Each requirement below has its own short page covering:**
 
-**If you only read one thing, read this:** the live failover demo under
-Requirement 5. A real region is simulated as down, and the recovery is
-watched happening automatically across a browser, an independent
-monitoring dashboard, and a raw command line, all at the same time.
-
-Every requirement below is its own short, self-contained page: what was
-built, the live evidence, and the real incidents hit along the way,
-clearly separated.
-
+*What was required → What I built → How I prove it live → What went wrong and what I learned.*
 | # | What was asked | What I built, in one line | Full detail |
 |---|---|---|---|
 | 1 | Kubernetes cluster, built through code | 2 independent clusters, Terraform + Ansible, verified live | [`requirement-1-kubernetes-cluster.md`](requirement-1-kubernetes-cluster.md) |
@@ -272,7 +233,22 @@ clearly separated.
 | 7 | Backup & recovery concept | Two scenarios, backed by a real measured incident | [`requirement-7-backup-recovery-concept.md`](requirement-7-backup-recovery-concept.md) |
 | 8 | DNS debugging methodology | TCP/IP-model-framed, real commands, real evidence | [`requirement-8-dns-debug-runbook.md`](requirement-8-dns-debug-runbook.md) |
 
-**Beyond the 8 requirements:** [The GCP showcase (cherry #2)](#the-gcp-showcase-cherry-2), [checking the cost claim, not just asserting it](#checking-the-cost-claim-not-just-asserting-it), and [screenshots](#screenshots).
+**We also few extra milestones were part and parcel of bringing the whole project to life. They weren't necessarily CGI requirements, but they tell a big part of the engineering story:**
+
+### Real incidents Below — check them out, there's a lot to learn.
+Things broke along the way. I documented the problem → investigation → root cause → fix rather than hiding the failures. They show how the platform was actually built and debugged in practice.
+
+### The GCP VM, provisioned the same way as the Azure VMs — proving portability.
+I provisioned a separate GCP VM using the same Terraform approach. Compare the Azure and GCP Terraform scaffolds and you'll notice they are largely the same structure and workflow — the main difference is the cloud provider and its resources. The same Ansible roles from Azure then configure the GCP machine with little/no cloud-specific change.
+
+**Why this matters to me:** it keeps the architecture slippery. If a hyperscaler becomes too expensive or stops making business sense, moving should be an engineering decision, not a complete rebuild.
+
+### Building My own cgi-sandbox environment.
+Rather than working from an unrestricted Azure account, I created a dedicated sandbox identity/environment using Microsoft Entra ID, Azure Resource Groups and scoped permission due to Time and Sandbox CGI never arrived.
+It was also an opportunity to demonstrate knowledge of, RBAC, resource isolation and least privilege alongside the main Kubernetes work.
+
+### Cost claims backed by evidence.(screenshots)
+The Two VMss in the Two Azure regions wer not completel free as you will see in the screenshots below, but GCP server was 0.00 as proven
 
 **Real incidents hit and fixed during the build.** Worth knowing these
 exist on their own, since they're some of the strongest evidence this
@@ -287,24 +263,24 @@ was actually built and debugged, not just described:
 | The pod-scheduling deadlock | A hard anti-affinity rule and a mismatched autoscaler limit left a pod permanently stuck | [`requirement-3-autoscaling-roundrobin.md`](requirement-3-autoscaling-roundrobin.md) |
 | The B2s capacity limit | The cheaper VM size had zero available capacity, forcing a 2.5x costlier fallback | [Checking the cost claim](#checking-the-cost-claim-not-just-asserting-it) |
 
-## Keeping this project isolated from everything else
+## Provisioning CGI Sandbox Account & Keeping this project isolated from everything else
 
 CGI's own challenge brief offers a sandbox Azure environment on request,
-but there wasn't time to wait on that request inside a tight four-day
-window. Instead, I provisioned my own equivalent sandbox before touching
-any real infrastructure:
+but there wasn't time to wait on that request inside a tight four-working day 
+window where i was only able to work after Bedtime. 
+Instead, I provisioned my own equivalent sandbox for the sake of speed
 
-- **Two accounts, split by role.** The root account only ever acted as
+- **Two accounts, split by role.** The Root account only ever acted as
   the administrator that set the boundary up once. A second,
-  deliberately limited identity, `CGI Challenge Sandbox`, does all of
-  the actual build work from there on.
+  deliberately limited identity Account, `CGI Challenge Sandbox`, is where we does all of
+  the actual build work.
 - **A hard boundary around the project.** The sandbox identity's access
   is restricted to exactly the two resource groups this project uses, so
   the project can never accidentally reach, or be reached by, anything
   else already in the same account.
 - **No standing permission to expand its own access.** The sandbox
   identity holds only the specific permissions it needs to do its job,
-  not the ability to grant itself, or anyone else, more.
+  not the ability to grant itself, or anyone else, that is only reserved for Root Account
 
 ![Resource groups, isolated from other work](docs/screenshots/01-resource-group-isolation.png)
 *Above: The two resource groups this project owns, sitting alongside an
@@ -312,8 +288,8 @@ unrelated resource group already in the account: proof this project has
 its own clean space, not a shared one.*
 
 ![Two identities: administrator and sandbox](docs/screenshots/02-entra-sandbox-identity.png)
-*Above: Two separate identities in the same account: the administrator account
-that set everything up, and the sandbox identity that actually builds
+*Above: The Two separate identities in The Root administrator account
+that set the identities up, & the sandbox identity that actually builds
 the challenge.*
 
 ![Scoped permissions, not full access](docs/screenshots/03-rbac-scoped-roles.png)
@@ -323,20 +299,19 @@ only the specific permissions it needs to do its job, with no permission
 to grant access to anyone else, including itself.*
 
 ![The sandbox identity's own view](docs/screenshots/04-sandbox-own-view.png)
-*Above: Signed in as the sandbox identity itself, this is the whole world it
+*Above: Signed in as the sandbox identity itself, this is the only reality it
 can see: exactly the two resource groups this project owns, and nothing
 else.*
 
-One consequence of creating these resource groups by hand, before
-Terraform ever ran: Terraform didn't know they already existed, and
-refused to quietly create a duplicate on top of them. That's the
-correct, safe behavior. The fix was `terraform import`, a standard way
-to bring an already-existing resource under Terraform's management
-instead of recreating it. Worth knowing that a resource group's own
-region is just metadata about where its record lives. It doesn't
-control where the resources inside it actually get created, so this had
-no effect on the real regional design (see the requirement pages for how
-that design itself later changed).
+### Incident — Terraform Finding Resources That Already Existed
+
+We started the project by running terraform apply and Terraform refused because we had created created Sandbox resources manually before Terraform ran, Terraform didnt know so Instead of trying to overwrite or duplicate them, it safely stopped.
+
+Fix: I used terraform import to bring the existing resource groups under Terraform management without recreating them.
+
+Lesson: If infrastructure already exists, Terraform doesn't automatically assume ownership — you need to explicitly import it.
+
+Small Azure detail: A resource group's region only describes where Azure stores the resource group's metadata. It does not determine WHERE the resources inside that group must run. So this had no impact on the platform's actual multi-region design.
 
 ![Terraform correctly refusing to duplicate an existing resource](docs/screenshots/11-apply-rg-conflict.png)
 *Above: Terraform noticing the resource group already exists and stopping,
@@ -344,17 +319,16 @@ rather than silently creating a conflicting duplicate.*
 
 ![Import successful](docs/screenshots/12-import-successful.png)
 *Above: The fix: bringing the existing resource group under Terraform's
-management with `terraform import`, rather than recreating it. Personal
-details in the scrollback, IP address and SSH key, are manually blacked
-out.*
+management with `terraform import`, rather than recreating it.
+IP address and SSH key, are redacted for Security reasons.*
 
-**Everything past this point, installing Kubernetes, deploying Hello
-World through GitOps, the autoscaling demo, the TLS certificate, and the
-multi-region failover, lives in its own page.** See the
+**Everything past this point is EXTRA, CGI requirements, installing Kubernetes, 
+deploying Hello World App through GitOps, the autoscaling demo, the TLS certificate, & the
+multi-region failover, have own page.** Scroll back up to the
 [Map](#map-jump-straight-to-what-you-need) above for Requirements 1
-through 5, each with its own live evidence and its own incidents. What
-follows here is everything the Map doesn't cover: the GCP showcase, the
-real cost numbers, and one long debugging story.
+through 8, each with its own live and lived evidence & its own incidents. 
+
+**Whatfollows here is everything the Map doesn't cover: the GCP showcase, the real cost numbers, & one long debugging story. (Feel Free to Read It You might learn something)**
 
 ### The GCP showcase (cherry #2)
 
