@@ -57,6 +57,8 @@ flowchart LR
 
     TFAZ(["terraform/azure/main.tf"]) -->|tells| CMD1[["1. terraform plan<br/>2. terraform apply"]]
     BEAZ(["terraform/azure/backend.tf"]) -->|tells| CMD1
+    PROVAZ(["terraform/azure/providers.tf"]) -->|tells| CMD1
+    VARAZ(["terraform/azure/variables.tf"]) -->|tells| CMD1
     OUT0 -->|shared state storage, needed first| CMD1
     CMD1 -->|produces| OUT1A["4 Azure VMs in 2 separate regions"]
     CMD1 -->|produces| OUT1B["Load Balancer in both Azure regions"]
@@ -64,10 +66,28 @@ flowchart LR
 
     TFGCP(["terraform/gcp/main.tf, outputs.tf"]) -->|tells| CMD2[["1. terraform plan<br/>2. terraform apply"]]
     BEGCP(["terraform/gcp/backend.tf"]) -->|tells| CMD2
+    PROVGCP(["terraform/gcp/providers.tf"]) -->|tells| CMD2
+    VARGCP(["terraform/gcp/variables.tf"]) -->|tells| CMD2
     OUT0 -->|shared state storage, needed first| CMD2
     CMD2 -->|produces| OUT2["GCP bare Ubuntu VM, also hosts the failover proxy"]
     CMD2 -->|produces| OUT2IP["Public IP, for Ansible to SSH in"]
 ```
+
+Three more files exist under `terraform/` but aren't in the diagram, they're
+not something anyone wrote by hand:
+
+- **`.terraform.lock.hcl`**: written automatically by `terraform init`.
+  Records the exact provider version that got downloaded (`3.117.1` for
+  Azure, for example) plus a set of cryptographic hashes confirming that
+  exact download hasn't been tampered with.
+- **`backend-config.hcl`**: the real, specific values Terraform needs to
+  find the state storage, the resource group name, the storage
+  account's actual name, the container, and the filename inside it.
+  Gitignored because the storage account name is unique to this
+  subscription.
+- **`.terraform/`**: a folder holding the actual provider plugin
+  Terraform downloaded (the real `azurerm` or `google` program itself),
+  so it doesn't need to download it again on the next run.
 
 **Phase 2: installing Kubernetes**
 
