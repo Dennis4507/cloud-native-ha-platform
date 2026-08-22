@@ -88,13 +88,18 @@ We Gitignore this file because these values are specific to our Azure environmen
 flowchart LR
     HOSTS(["ansible/inventory/hosts.yml"]) -->|tells| CMD3[["Run: ansible-playbook<br/>roles: common, k3s-server,<br/>k3s-agent, proxy"]]
     PLAY(["ansible/playbook.yml"]) -->|tells| CMD3
+    COMMON(["roles/common/tasks/main.yml"]) -->|tells| CMD3
+    K3SSRV(["roles/k3s-server/tasks/main.yml"]) -->|tells| CMD3
+    K3SAGT(["roles/k3s-agent/tasks/main.yml"]) -->|tells| CMD3
+    PROXY(["roles/proxy/tasks/main.yml"]) -->|tells| CMD3
     CMD3 -->|produces| OUT3A["K3s is joined on every node"]
-    CMD3 -->|produces| OUT3B["cert-manager is installed everywhere"]
-    CMD3 -->|produces| OUT3C["The failover proxy is installed on the GCP VM"]
+    CMD3 -->|produces| OUT3B["The failover proxy is installed on the GCP VM"]
 ```
 
 `ansible/inventory/hosts.yml` is where Phase 1's public IP addresses
-actually land, hand-recorded against the right machine.
+actually land, hand-recorded against the right machine. cert-manager
+isn't installed here, it's not part of any Ansible role, it's a
+separate step in Phase 3 below.
 
 **Phase 3: deploying through GitOps**
 
@@ -105,12 +110,16 @@ flowchart LR
     CMD3B -->|produces| OUT3B["kubectl is reachable from my laptop"]
 
     OUT3B -->|needed first| CMD4[["Run: kubectl apply, k8s/argocd/"]]
-    F4(["k8s/argocd/ manifests"]) -->|tells| CMD4
+    F4(["k8s/argocd/: 3 Application files,<br/>one per region plus monitoring"]) -->|tells| CMD4
     CMD4 -->|produces| OUT4["ArgoCD is running and watches this repo"]
+
+    OUT3B -->|needed first| CMDCM[["Run: kubectl apply<br/>cert-manager's official installer"]]
+    CMDCM -->|produces| OUTCM["cert-manager is running on both clusters"]
 
     F5A(["k8s/apps/hello-world/"]) -->|tells| CMD5[["Run: git push"]]
     F5B(["k8s/apps/monitoring/"]) -->|tells| CMD5
     OUT4 -->|needed first| CMD5
+    OUTCM -->|needed first| CMD5
     CMD5 -->|produces| OUT5A["Hello World is live in both regions"]
     CMD5 -->|produces| OUT5B["Uptime Kuma watches both regions and the proxy"]
 ```
