@@ -31,9 +31,9 @@ shown as planned, not yet built.*
 ## The build pipeline: scaffold and commands together
 
 The diagram above shows what talks to what while the platform is
-*running*. The four below show how it gets *built*, and they all use
-the same three shapes and three arrow meanings, so this key only needs
-reading once:
+*running*. The five phases below show how it gets *built*, and they
+all use the same three shapes, so this key only needs reading once
+(Phase 5 adds one more arrow idea, explained where it appears):
 
 ```mermaid
 flowchart LR
@@ -125,6 +125,10 @@ flowchart LR
     CMD5 -->|produces| OUT5B["Uptime Kuma watches both regions and the proxy"]
 ```
 
+`k8s/apps/hello-world/` and `k8s/apps/monitoring/` are folder-level boxes
+here, they're each built from several individual files. Phase 5 below
+opens up what's actually inside both.
+
 **Phase 4: the live demos** (not one-time build steps, both can be run
 again at any time against the already-built platform)
 
@@ -138,6 +142,55 @@ flowchart LR
     F6B(["scripts/failover-demo.sh"]) -->|tells| CMD6B
     CMD6B -->|produces| OUT6B["An NSG rule blocks West Europe; the proxy reroutes traffic to Germany West Central"]
 ```
+
+**Phase 5: what's inside the app manifests**
+
+Phases 1 through 4 are all commands I actually type. This phase is
+different, none of these files get run, ArgoCD reads them
+declaratively through Kustomize. So the arrows here don't say `tells`,
+they name the real Kubernetes resource connecting one file to the
+next, a ConfigMap, a Secret, a label selector, confirmed by grepping
+the actual name across both files, not assumed from filenames.
+
+*Hello World, shown for West Europe, the germany-west overlay mirrors
+this exactly, same 4 files, its own ConfigMap and Certificate:*
+
+```mermaid
+flowchart LR
+    NS(["base/namespace.yaml"]) -->|holds every resource here| DEPLOY(["base/deployment.yaml"])
+    NGINXCONF(["base/nginx-config.yaml"]) -->|provides ConfigMap:<br/>hello-world-nginx-conf| DEPLOY
+    CM(["overlays/west-eu/configmap.yaml"]) -->|provides ConfigMap:<br/>hello-world-html| DEPLOY
+    DEPLOY -->|selected by| SVC(["base/service.yaml"])
+    DEPLOY -->|scale target of| HPA(["base/hpa.yaml"])
+    SVC -->|routed to by| ING(["base/ingress.yaml"])
+    ISSUER(["base/cluster-issuer.yaml"]) -->|signs cert for| CERT(["overlays/west-eu/certificate.yaml"])
+    CERT -->|provides Secret:<br/>hello-world-tls| ING
+    CERT -->|provides Secret:<br/>hello-world-tls| TLSSTORE(["overlays/west-eu/tls-store.yaml"])
+    ING -->|tells| KUST(["overlays/west-eu/kustomization.yaml"])
+    HPA -->|tells| KUST
+    TLSSTORE -->|tells| KUST
+    KUST -->|tells| CMD[["ArgoCD builds automatically:<br/>kustomize build"]]
+    CMD -->|produces| RESULT["Hello World is live in West Europe"]
+```
+
+*Monitoring, the same idea, far fewer moving parts:*
+
+```mermaid
+flowchart LR
+    NS2(["namespace.yaml"]) -->|holds every resource here| DEPLOY2(["deployment.yaml"])
+    PVC(["pvc.yaml"]) -->|provides claim:<br/>uptime-kuma-data| DEPLOY2
+    DEPLOY2 -->|selected by| SVC2(["service.yaml"])
+    SVC2 -->|tells| KUST2(["kustomization.yaml"])
+    KUST2 -->|tells| CMD2[["ArgoCD builds automatically:<br/>kustomize build"]]
+    CMD2 -->|produces| RESULT2["Uptime Kuma watches both regions and the proxy"]
+```
+
+Both diagrams end exactly where Phase 3 starts using their result,
+`RESULT` here is the same "Hello World is live in both regions" and
+`RESULT2` the same "Uptime Kuma watches both regions and the proxy"
+that Phase 3's `git push` step produces. Every file under
+`k8s/apps/hello-world/` and `k8s/apps/monitoring/` is now accounted
+for somewhere in this repo's diagrams.
 
 ## The trade-offs behind this architecture
 
