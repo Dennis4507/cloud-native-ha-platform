@@ -53,18 +53,20 @@ something from an earlier step already existing before it can run.
 ```mermaid
 flowchart LR
     F0(["scripts/bootstrap-tfstate.sh"]) -->|tells| CMD0[["Run: bash bootstrap-tfstate.sh"]]
-    CMD0 -->|produces| OUT0["Remote state storage created in Azure"]
+    CMD0 -->|produces| OUT0["Remote state storage created in Azure Blob"]
 
-    TFAZ(["terraform/azure/main.tf, outputs.tf"]) -->|tells| CMD1[["1. terraform plan<br/>2. terraform apply"]]
-    OUT0 -->|needed first, shared state storage| CMD1
-    CMD1 -->|produces| OUT1A["VMSS: 4 VMs in 2 Azure regions"]
+    TFAZ(["terraform/azure/main.tf"]) -->|tells| CMD1[["1. terraform plan<br/>2. terraform apply"]]
+    BEAZ(["terraform/azure/backend.tf"]) -->|tells| CMD1
+    OUT0 -->|shared state storage, needed first| CMD1
+    CMD1 -->|produces| OUT1A["4 Azure VMs in 2 separate regions"]
     CMD1 -->|produces| OUT1B["Load Balancer in both Azure regions"]
-    CMD1 -->|produces| OUT1C["Public IP addresses, for Ansible to use next"]
+    CMD1 -->|produces| OUT1C["Public IP per node, for Ansible to SSH in"]
 
-    TFGCP(["terraform/gcp/main.tf"]) -->|tells| CMD2[["1. terraform plan<br/>2. terraform apply"]]
-    OUT0 -->|needed first, shared state storage| CMD2
-    CMD2 -->|produces| OUT2["GCP VM now provisioned: showcase node, also hosts the failover proxy"]
-    CMD2 -->|produces| OUT2IP["Public IP address, for Ansible to use next"]
+    TFGCP(["terraform/gcp/main.tf, outputs.tf"]) -->|tells| CMD2[["1. terraform plan<br/>2. terraform apply"]]
+    BEGCP(["terraform/gcp/backend.tf"]) -->|tells| CMD2
+    OUT0 -->|shared state storage, needed first| CMD2
+    CMD2 -->|produces| OUT2["GCP bare Ubuntu VM, also hosts the failover proxy"]
+    CMD2 -->|produces| OUT2IP["Public IP, for Ansible to SSH in"]
 ```
 
 **Phase 2: installing Kubernetes**
