@@ -41,25 +41,28 @@ diagram after it reads the same way.
 
 ```mermaid
 flowchart LR
-    L1[["A file already in the repo"]] -->|defines| L2(["A command I actually run"])
-    L2 -->|produces| L3["What that command makes true"]
+    L1(["A file already in the repo"]) -->|defines| L2[["A command I run, one or more steps"]]
+    L2 -->|produces| L3["The result, now true"]
+    L0["An earlier result"] -->|required first| L2
 ```
 
-A file *defines* what a command does. A command *produces* a result.
-One more arrow meaning shows up where a command needs something from an
-earlier step to already exist before it can run, labeled `required
-first` wherever that happens.
+A file *defines* what a command does. A command *produces* a result. A
+prior result can also be *required first*, where a command depends on
+something from an earlier step already existing before it can run.
 
 **Phase 1: provisioning the infrastructure**
 
 ```mermaid
 flowchart LR
-    CMD0(["Run: bootstrap-tfstate.sh"]) -->|produces| OUT0["Remote state storage now exists in Azure"]
-    TFAZ[["terraform/azure/main.tf, outputs.tf"]] -->|defines| CMD1(["Run: terraform apply"])
-    OUT0 -->|required first| CMD1
-    CMD1 -->|produces| OUT1["2 VMSS and Load Balancers now provisioned, both regions"]
-    TFGCP[["terraform/gcp/main.tf"]] -->|defines| CMD2(["Run: terraform apply"])
-    OUT0 -->|required first| CMD2
+    CMD0[["bash bootstrap-tfstate.sh"]] -->|produces| OUT0["Remote state storage now exists in Azure"]
+
+    TFAZ(["terraform/azure/main.tf, outputs.tf"]) -->|defines| CMD1[["1. terraform plan<br/>2. terraform apply"]]
+    OUT0 -->|required first, shared backend| CMD1
+    CMD1 -->|produces| OUT1A["VMSS x2: 4 VMs total, 2 per region"]
+    CMD1 -->|produces| OUT1B["Load Balancer, both regions"]
+
+    TFGCP(["terraform/gcp/main.tf"]) -->|defines| CMD2[["1. terraform plan<br/>2. terraform apply"]]
+    OUT0 -->|required first, shared backend| CMD2
     CMD2 -->|produces| OUT2["GCP VM now provisioned: showcase node, also hosts the failover proxy"]
 ```
 
