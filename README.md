@@ -31,8 +31,20 @@ shown as planned, not yet built.*
 ## The build pipeline: scaffold and commands together
 
 The diagram above shows what talks to what while the platform is
-*running*. The four below show how it gets *built*: which file feeds
-which command, and what that command actually produces. 
+*running*. The four below show how it gets *built*, and they all use
+the same three shapes and three arrow meanings, so this key only needs
+reading once:
+
+```mermaid
+flowchart LR
+    L1(["A file"]) -->|tells| L2[["A command"]]
+    L2 -->|produces| L3["The result"]
+    L0["Earlier result"] -->|needed first| L2
+```
+
+A file tells a command what to do. A command produces a result. A
+result can also be needed first, when a command depends on it already
+existing.
 
 **Phase 1: provisioning the infrastructure**
 
