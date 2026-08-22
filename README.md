@@ -32,21 +32,7 @@ shown as planned, not yet built.*
 
 The diagram above shows what talks to what while the platform is
 *running*. The four below show how it gets *built*: which file feeds
-which command, and what that command actually produces. Every diagram
-uses the same three shapes for the same three kinds of thing, and the
-same three arrow meanings, so once you've read the key once, every
-diagram after it reads the same way.
-
-```mermaid
-flowchart LR
-    L1(["A file already in the repo"]) -->|tells| L2[["A command I run, one or more steps"]]
-    L2 -->|produces| L3["The result, now true"]
-    L0["An earlier result"] -->|needed first| L2
-```
-
-A file *tells* a command what to do. A command *produces* a result. A
-prior result can also be *needed first*, where a command depends on
-something from an earlier step already existing before it can run.
+which command, and what that command actually produces. 
 
 **Phase 1: provisioning the infrastructure**
 
@@ -59,7 +45,7 @@ flowchart LR
     BEAZ(["terraform/azure/backend.tf"]) -->|tells| CMD1
     PROVAZ(["terraform/azure/providers.tf"]) -->|tells| CMD1
     VARAZ(["terraform/azure/variables.tf"]) -->|tells| CMD1
-    OUT0 -->|shared state storage, needed first| CMD1
+    OUT0 -->|shared Remote state storage, needed first| CMD1
     CMD1 -->|produces| OUT1A["4 Azure VMs in 2 separate regions"]
     CMD1 -->|produces| OUT1B["Load Balancer in both Azure regions"]
     CMD1 -->|produces| OUT1C["Public IP per node, for Ansible to SSH in"]
@@ -68,7 +54,7 @@ flowchart LR
     BEGCP(["terraform/gcp/backend.tf"]) -->|tells| CMD2
     PROVGCP(["terraform/gcp/providers.tf"]) -->|tells| CMD2
     VARGCP(["terraform/gcp/variables.tf"]) -->|tells| CMD2
-    OUT0 -->|shared state storage, needed first| CMD2
+    OUT0 -->|shared Remote state storage, needed first| CMD2
     CMD2 -->|produces| OUT2["GCP bare Ubuntu VM, also hosts the failover proxy"]
     CMD2 -->|produces| OUT2IP["Public IP, for Ansible to SSH in"]
 ```
@@ -76,18 +62,13 @@ flowchart LR
 Three more files exist under `terraform/` but aren't in the diagram, they're
 not something anyone wrote by hand:
 
-- **`.terraform.lock.hcl`**: written automatically by `terraform init`.
-  Records the exact provider version that got downloaded (`3.117.1` for
-  Azure, for example) plus a set of cryptographic hashes confirming that
-  exact download hasn't been tampered with.
-- **`backend-config.hcl`**: the real, specific values Terraform needs to
-  find the state storage, the resource group name, the storage
-  account's actual name, the container, and the filename inside it.
-  Gitignored because the storage account name is unique to this
-  subscription.
-- **`.terraform/`**: a folder holding the actual provider plugin
-  Terraform downloaded (the real `azurerm` or `google` program itself),
-  so it doesn't need to download it again on the next run.
+- **`.terraform.lock.hcl`**: written automatically after running `terraform init`.
+  Records the exact AzureRM provider version that got downloaded from the Terraform Registry eg (`3.117.1`) plus a set of cryptographic hashes that confirm that exact download hasn't been tampered with.
+- **`backend-config.hcl`**: Contains the environment-specific details telling Terraform where the remote state is stored. this file contains resource_group_name  = "rg-tfstate", storage_account_name = "stcnhptfstate6e2d"
+container_name = "tfstate" & key = "azure.tfstate" needed during Terraform init 
+We Gitignore this file because these values are specific to our Azure environment/subscription
+
+- **`.terraform/`**: Terraform's local working directory, created by terraform init. It contains locally downloaded provider binaries/modules and Terraform's initialized backend metadata. For example, this is where Terraform keeps the downloaded AzureRM provider that it needs to communicate with Azure. (the real `azurerm` or `google` program itself), so it doesn't need to download it again on the next run.
 
 **Phase 2: installing Kubernetes**
 
